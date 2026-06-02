@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# arz — live IRR prices: dollar, euro, gold (18K), emami coin
+# Source: tabdeal.org (primary), tgju.org (fallback)
+# Usage: arz [-h|--help]
+
+for arg in "$@"; do
+  if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+    echo "arz — live Iranian market prices in Toman"
+    echo ""
+    echo "Usage: arz"
+    echo ""
+    echo "Shows:"
+    echo "  Dollar     USD/IRR free market rate"
+    echo "  Euro       EUR/IRR free market rate"
+    echo "  Gold 18K   18-karat gold price per gram"
+    echo "  Emami      Emami full coin price"
+    echo ""
+    echo "Sources:"
+    echo "  Primary:   tabdeal.org/live"
+    echo "  Fallback:  tgju.org (auto-switch if primary unreachable)"
+    echo ""
+    echo "Cache: results cached for 60s in /tmp/arz_cache"
+    exit 0
+  fi
+done
+
+G='\033[0;32m'
+Y='\033[1;33m'
+C='\033[0;36m'
+R='\033[0;31m'
+M='\033[0;35m'
+B='\033[1m'
+D='\033[2m'
+Z='\033[0m'
+
+sep() { echo -e "${D}────────────────────────────────────────${Z}"; }
+
+fmt_price() {
+  python3 -c "
+n = int('$1')
+if n >= 1_000_000:
+    print(f'{n/1_000_000:.2f}M')
+elif n >= 1_000:
+    s = f'{n:,}'
+    print(s)
+else:
+    print(str(n))
+"
+}
+
+fmt_change() {
+  python3 -c "
+v = float('$1')
+if v > 0:
+    print(f'\033[0;32m+{v:.2f}%\033[0m')
+elif v < 0:
+    print(f'\033[0;31m{v:.2f}%\033[0m')
+else:
+    print(f'\033[2m{v:.2f}%\033[0m')
+"
+}
+
+parse_payload() {
+  python3 - "$1" "$2" <<'PYEOF'
+import json, sys, re
+
+url_path = sys.argv[1]
+want = sys.argv[2]  # comma-separated titles to match
+
+import urllib.request
+req = urllib.request.Request(
+    f"https://tabdeal.org{url_path}",
+    headers={"User-Agent": "Mozilla/5.0"}
+)
+try:
+    with urllib.request.urlopen(req, timeout=8) as r:
+        arr = json.loads(r.read())
+except Exception as e:
+    print(f"ERROR:{e}", file=sys.stderr)
+    sys.exit(1)
+
+# Build index: position -> resolved value
+# Items that are dicts with price_title/last_price/price_change are price records
+targets = set(want.split(","))
+
+for item in arr:
+    if isinstance(item, dict) and "price_title" in item and "last_price" in item:
+        title_ref  = item["price_title"]
+        price_ref  = item["last_price"]
+        change_ref = item["price_change"]
+        title  = arr[title_ref]  if isinstance(title_ref,  int) else title_ref
+        price  = arr[price_ref]  if isinstance(price_ref,  int) else price_ref
+        change = arr[change_ref] if isinstance(change_ref, int) else change_ref
+        if not targets or title in targets:
+            print(f"{title}\t{price}\t{change}")
+PYEOF
+}
+
+CACHE_FILE="/tmp/arz_cache"
+CACHE_TTL=60
+
+# ── Cache check ───────────────────────────────────────────────
+if [[ -f "$CACHE_FILE" ]]; then
+  AGE=$(( $(date +%s) - $(python3 -c "import os; print(int(os.path.getmtime('$CACHE_FILE')))") ))
+  if (( AGE < CACHE_TTL )); then
+    cat "$CACHE_FILE"
+    echo -e "  ${D}(cached ${AGE}s ago)${Z}"
+    echo ""
+    exit 0
+  fi
+fi
+
+# ── tgju fallback ────────────────────────────────────────────
+fetch_tgju() {
+  python3 <<'PYEOF'
+import urllib.request, re, sys
+
+req = urllib.request.Request(
+    "https://www.tgju.org/",
+    headers={"User-Agent": "Mozilla/5.0"}
+)
+try:
+    with urllib.request.urlopen(req, timeout=8) as r:
+        html = r.read().decode("utf-8", errors="replace")
+except Exception as e:
+    print(f"ERROR:{e}", file=sys.stderr); sys.exit(1)
+
+KEYS = {
+    "price_dollar_rl": "Dollar",
+    "price_eur":       "Euro",
+    "geram18":         "Gold 18K",
+    "sekee":           "Emami",
+}
+
+for slug, label in KEYS.items():
+    m = re.search(r'data-market-row="' + slug + r'"[^>]*>(.*?)</tr>', html, re.DOTALL)
+    if not m: continue
+    row = m.group(1)
+    tds = re.findall(r'<td[^>]*class="nf"[^>]*>(.*?)</td>', row, re.DOTALL)
+    if not tds: continue
+    price_raw = re.sub(r'<[^>]+>', '', tds[0]).replace(',', '').strip()
+    try:
+        price_toman = int(price_raw) // 10
+    except:
+        continue
+    chg = 0.0
+    if len(tds) > 1:
+        cm = re.search(r'<span class="(low|high)">\(([0-9.]+)%\)', tds[1])
+        if cm:
+            chg = float(cm.group(2))
+            if cm.group(1) == "low": chg = -chg
+    print(f"{label}\t{price_toman}\t{chg}")
+PYEOF
+}
+
+# ── Fetch from tabdeal (primary) ──────────────────────────────
+HASH=$(curl -sL "https://tabdeal.org/live/gold" -A "Mozilla/5.0" --max-time 6 \
+  | grep -o '_payload\.json?[^"]*' | head -1 | sed 's/_payload\.json?//')
+
+USE_TGJU=0
+[[ -z "$HASH" ]] && USE_TGJU=1
+
+if [[ $USE_TGJU -eq 0 ]]; then
+  # quick check one payload actually works
+  TEST=$(curl -sL "https://tabdeal.org/live/currency/_payload.json?${HASH}" -A "Mozilla/5.0" --max-time 6 | head -c 20)
+  [[ -z "$TEST" ]] && USE_TGJU=1
+fi
+
+if [[ $USE_TGJU -eq 1 ]]; then
+  SOURCE="tgju.org (fallback)"
+else
+  SOURCE="tabdeal.org"
+fi
+
+OUT=""
+OUT+="\n${B}  Live Prices (Toman)${Z}  ${D}${SOURCE}${Z}\n"
+OUT+="$(sep)\n"
+
+if [[ $USE_TGJU -eq 1 ]]; then
+  # ── tgju: all items in one fetch ───────────────────────────
+  while IFS=$'\t' read -r label price change; do
+    fp=$(fmt_price "$price")
+    fc=$(fmt_change "$change")
+    case "$label" in
+      Dollar|Euro) col="$C" ;;
+      *)           col="$M" ;;
+    esac
+    OUT+="$(printf "  ${col}%-14s${Z}  ${Y}%12s${Z}  %s" "$label" "$fp" "$fc")\n"
+    [[ "$label" == "Euro" ]] && OUT+="$(sep)\n"
+    [[ "$label" == "Gold 18K" ]] && OUT+="$(sep)\n"
+  done < <(fetch_tgju)
+
+else
+  # ── tabdeal: currency ─────────────────────────────────────
+  while IFS=$'\t' read -r title price change; do
+    fp=$(fmt_price "$price")
+    fc=$(fmt_change "$change")
+    case "$title" in
+      دلار)  label="Dollar" ;;
+      یورو)  label="Euro"   ;;
+      پوند)  label="Pound"  ;;
+      درهم)  label="Dirham" ;;
+      *)     label="$title" ;;
+    esac
+    OUT+="$(printf "  ${C}%-14s${Z}  ${Y}%12s${Z}  %s" "$label" "$fp" "$fc")\n"
+  done < <(parse_payload "/live/currency/_payload.json?${HASH}" "دلار,یورو")
+
+  OUT+="$(sep)\n"
+
+  # ── tabdeal: gold ─────────────────────────────────────────
+  while IFS=$'\t' read -r title price change; do
+    fp=$(fmt_price "$price")
+    fc=$(fmt_change "$change")
+    OUT+="$(printf "  ${M}%-14s${Z}  ${Y}%12s${Z}  %s" "Gold 18K" "$fp" "$fc")\n"
+  done < <(parse_payload "/live/gold/_payload.json?${HASH}" "طلای ۱۸ عیار")
+
+  OUT+="$(sep)\n"
+
+  # ── tabdeal: coin ─────────────────────────────────────────
+  while IFS=$'\t' read -r title price change; do
+    fp=$(fmt_price "$price")
+    fc=$(fmt_change "$change")
+    OUT+="$(printf "  ${M}%-14s${Z}  ${Y}%12s${Z}  %s" "Emami" "$fp" "$fc")\n"
+  done < <(parse_payload "/live/coin/_payload.json?${HASH}" "سکه امامی")
+fi
+
+# ── Save cache and print ──────────────────────────────────────
+printf "%b" "$OUT" | tee "$CACHE_FILE"
+echo ""
