@@ -11,6 +11,16 @@
 #   vpn -s NAME                    sing-box with NAME.json
 #   vpn -ofs                       all three
 #
+# NOTE — proxy flag:
+#   -p/--proxy must be sourced (not run in subprocess) to export env vars
+#   into the current shell. The vpn() wrapper in .zshrc handles this:
+#     vpn() {
+#       case "${1:-}" in
+#         -p|--proxy) source /path/to/vpn.sh "$@" ;;
+#         *)          sudo bash /path/to/vpn.sh "$@" ;;
+#       esac
+#     }
+#
 # Requires: openvpn, openfortivpn, oathtool, sing-box, fzf, .env
 
 ENV_FILE="$(dirname "$0")/../.env"
@@ -74,8 +84,8 @@ vpn_proxy() {
 
 # ── Dispatch special flags ────────────────────────────────────
 case "${1:-}" in
-    -k|--kill)  vpn_kill;  exit 0 ;;
-    -p|--proxy) vpn_proxy; exit 0 ;;
+    -k|--kill)  vpn_kill;  return 0 2>/dev/null || exit 0 ;;
+    -p|--proxy) vpn_proxy; return 0 2>/dev/null || exit 0 ;;
 esac
 
 set -e
