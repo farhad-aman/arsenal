@@ -62,20 +62,6 @@ Examples:
 
 ---
 
-### `vpn/forti.sh` — FortiVPN direct
-
-Connects via openfortivpn with auto-generated TOTP.
-
-### `vpn/open-connect.sh` — OpenConnect (Snapp)
-
-Connects via openconnect with fortinet protocol.
-
-### `vpn/pirouz.sh` — OpenConnect (vpn-aws)
-
-Connects to vpn-aws endpoint via openconnect.
-
----
-
 ## Setup
 
 ```bash
