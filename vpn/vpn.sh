@@ -2,25 +2,20 @@
 # vpn.sh — multi-VPN orchestrator: OpenVPN + FortiVPN + sing-box
 #
 # Usage:
-#   vpn [-o] [-f] [-s] [-s NAME]   run all or specific combo
-#   vpn -o                          OpenVPN only
-#   vpn -f                          FortiVPN only
-#   vpn -s                          sing-box only (fzf config picker)
-#   vpn -s NAME                     sing-box with NAME.json
-#   vpn -ofs                        all three
+#   vpn [-o] [-f] [-s] [-s NAME]   connect all or specific combo
+#   vpn -k, --kill                 kill all VPN processes
+#   vpn -p, --proxy                toggle shell proxy (127.0.0.1:2080)
+#   vpn -o                         OpenVPN only
+#   vpn -f                         FortiVPN only
+#   vpn -s                         sing-box only (fzf config picker)
+#   vpn -s NAME                    sing-box with NAME.json
+#   vpn -ofs                       all three
 #
 # Requires: openvpn, openfortivpn, oathtool, sing-box, fzf, .env
-
-set -e
 
 ENV_FILE="$(dirname "$0")/../.env"
 [[ -f "$ENV_FILE" ]] || { echo "Missing .env — copy .env.example and fill values"; exit 1; }
 source "$ENV_FILE"
-
-SINGBOX_CONFIG="${SINGBOX_DIR}/config.json"
-OVPN_LOG=/tmp/openvpn.log
-FORTI_LOG=/tmp/forti.log
-SINGBOX_LOG=/tmp/singbox.log
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -29,6 +24,66 @@ RESET='\033[0m'
 
 log()  { echo -e "${CYAN}[vpn]${RESET} $*"; }
 ok()   { echo -e "${GREEN}[ok]${RESET}  $*"; }
+
+# ── Kill ──────────────────────────────────────────────────────
+vpn_kill() {
+    log "Killing all VPN processes..."
+
+    sudo killall -TERM openfortivpn 2>/dev/null || true
+    sudo killall -TERM pppd         2>/dev/null || true
+
+    local i=0
+    while ifconfig ppp0 &>/dev/null && (( i < 10 )); do
+        sleep 1; (( i++ ))
+    done
+
+    if ifconfig ppp0 &>/dev/null; then
+        sudo ifconfig ppp0 down 2>/dev/null || true
+        sleep 1
+        netstat -rn 2>/dev/null | awk '/ppp0/{print $1}' | while read -r r; do
+            sudo route delete "$r" 2>/dev/null || true
+            sleep 0.2
+        done
+    fi
+
+    sudo killall -TERM openvpn 2>/dev/null || true
+    sleep 2
+    sudo killall -9 openvpn   2>/dev/null || true
+
+    pkill -x sing-box 2>/dev/null || true
+
+    ok "VPN state cleared"
+}
+
+# ── Proxy toggle ──────────────────────────────────────────────
+vpn_proxy() {
+    if [ -z "$http_proxy" ]; then
+        export http_proxy="http://127.0.0.1:2080"
+        export https_proxy="http://127.0.0.1:2080"
+        export HTTP_PROXY="$http_proxy"
+        export HTTPS_PROXY="$https_proxy"
+        export ALL_PROXY="socks5://127.0.0.1:2080"
+        export no_proxy="localhost,127.0.0.1,::1,.local,.svc,.cluster.local,.snapp,.snapp.ir,.snapp.tech,.snappcloud.io,.baly"
+        export NO_PROXY="$no_proxy"
+        ok "Proxy ON  (127.0.0.1:2080)"
+    else
+        unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY no_proxy NO_PROXY
+        ok "Proxy OFF"
+    fi
+}
+
+# ── Dispatch special flags ────────────────────────────────────
+case "${1:-}" in
+    -k|--kill)  vpn_kill;  exit 0 ;;
+    -p|--proxy) vpn_proxy; exit 0 ;;
+esac
+
+set -e
+
+SINGBOX_CONFIG="${SINGBOX_DIR}/config.json"
+OVPN_LOG=/tmp/openvpn.log
+FORTI_LOG=/tmp/forti.log
+SINGBOX_LOG=/tmp/singbox.log
 
 # ── Parse flags ───────────────────────────────────────────────
 RUN_O=0; RUN_F=0; RUN_S=0
