@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# net-reset — brutal macOS network stack reset
+#
+# Fixes: stale VPN routes, broken DNS, dead interfaces, stuck proxy, configd mess
+#
+# Usage:
+#   net-reset          full reset (WiFi cycle + DNS flush + daemons)
+#   net-reset --quick  skip WiFi cycle (faster, less brutal)
+#   net-reset -h       help
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RESET='\033[0m'
+
+log()  { echo -e "${CYAN}[net-reset]${RESET} $*"; }
+ok()   { echo -e "${GREEN}[ok]${RESET}  $*"; }
+warn() { echo -e "${YELLOW}[warn]${RESET} $*"; }
+
+QUICK=0
+case "${1:-}" in
+    -h|--help)
+        echo "net-reset — brutal macOS network stack reset"
+        echo ""
+        echo "Usage:"
+        echo "  net-reset          full reset (WiFi cycle + DNS + daemons + routes)"
+        echo "  net-reset --quick  skip WiFi cycle"
+        echo ""
+        echo "Fixes: stale VPN routes, broken DNS, dead interfaces, proxy stuck, configd mess"
+        exit 0
+        ;;
+    -q|--quick) QUICK=1 ;;
+esac
+
+echo ""
+log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log "Starting brutal network reset..."
+log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# ── Step 1: Kill all VPN processes ────────────────────────────
+log "[1/6] Killing VPN processes..."
+sudo killall -9 openfortivpn 2>/dev/null || true
+sudo killall -9 pppd         2>/dev/null || true
+sudo killall -9 openvpn      2>/dev/null || true
+pkill -9 sing-box            2>/dev/null || true
+pkill -9 openconnect         2>/dev/null || true
+sleep 1
+ok "[1/6] VPN processes gone"
+
+# ── Step 2: Tear down VPN interfaces & stale routes ───────────
+log "[2/6] Clearing VPN interfaces and stale routes..."
+
+if ifconfig ppp0 &>/dev/null 2>&1; then
+    netstat -rn 2>/dev/null | awk '/ppp0/ {print $1}' | while read -r r; do
+        sudo route delete "$r" 2>/dev/null || true
+        sleep 0.1
+    done
+    sudo ifconfig ppp0 down 2>/dev/null || true
+    warn "ppp0 was up — forcibly removed"
+fi
+
+# utun/tun interfaces auto-die when their owning process dies,
+# but nuke any stuck ones just in case
+for iface in $(ifconfig -l 2>/dev/null | tr ' ' '\n' | grep -E '^(utun|tun)[0-9]+'); do
+    ifconfig "$iface" &>/dev/null 2>&1 || continue
+    # skip system utun0/utun1/utun2 (macOS uses these for AirDrop/Handoff)
+    case "$iface" in utun0|utun1|utun2) continue ;; esac
+    sudo ifconfig "$iface" down 2>/dev/null || true
+done
+
+# flush any dead/unreachable host routes leftover from VPN
+netstat -rn 2>/dev/null \
+    | awk 'NR>4 && $4 ~ /UH/ && $6 ~ /^(utun|tun|ppp)/ {print $1}' \
+    | while read -r r; do sudo route delete "$r" 2>/dev/null || true; done
+
+ok "[2/6] Interfaces and routes cleared"
+
+# ── Step 3: Cycle WiFi ─────────────────────────────────────────
+if [[ $QUICK -eq 0 ]]; then
+    log "[3/6] Cycling WiFi (en0)..."
+    # Detect WiFi interface (usually en0, but not always)
+    WIFI_IF=$(networksetup -listallhardwareports 2>/dev/null \
+        | awk '/Wi-Fi/{found=1} found && /Device/{print $2; exit}')
+    WIFI_IF="${WIFI_IF:-en0}"
+
+    networksetup -setairportpower "$WIFI_IF" off 2>/dev/null \
+        || sudo ifconfig "$WIFI_IF" down 2>/dev/null || true
+    sleep 3
+    networksetup -setairportpower "$WIFI_IF" on  2>/dev/null \
+        || sudo ifconfig "$WIFI_IF" up 2>/dev/null || true
+
+    log "  Waiting for WiFi association..."
+    WAIT=0
+    until networksetup -getairportnetwork "$WIFI_IF" 2>/dev/null | grep -v "not associated" &>/dev/null; do
+        sleep 1; WAIT=$((WAIT+1))
+        [[ $WAIT -ge 15 ]] && { warn "WiFi not associated after 15s — continuing anyway"; break; }
+    done
+    ok "[3/6] WiFi back up (${WIFI_IF})"
+else
+    ok "[3/6] WiFi cycle skipped (--quick)"
+fi
+
+# ── Step 4: Renew DHCP ─────────────────────────────────────────
+log "[4/6] Renewing DHCP..."
+WIFI_IF="${WIFI_IF:-en0}"
+sudo ipconfig set "$WIFI_IF" DHCP 2>/dev/null || true
+sleep 2
+ok "[4/6] DHCP renewed"
+
+# ── Step 5: Flush DNS + ARP ────────────────────────────────────
+log "[5/6] Flushing DNS cache and ARP table..."
+sudo dscacheutil -flushcache       2>/dev/null || true
+sudo killall -HUP mDNSResponder    2>/dev/null || true
+sudo arp -da                       2>/dev/null || true
+ok "[5/6] DNS and ARP flushed"
+
+# ── Step 6: Restart network daemons ───────────────────────────
+log "[6/6] Restarting network daemons..."
+sudo launchctl kickstart -k system/com.apple.configd      2>/dev/null || true
+sudo launchctl kickstart -k system/com.apple.mDNSResponder 2>/dev/null || true
+sudo launchctl kickstart -k system/com.apple.networkd     2>/dev/null || true
+sleep 2
+ok "[6/6] Daemons restarted"
+
+# ── Done ───────────────────────────────────────────────────────
+echo ""
+log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+ok "Network reset complete."
+log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "  If proxy env vars stuck in this shell:"
+echo "  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY no_proxy NO_PROXY"
+echo ""
+echo "  Test:"
+echo "  curl -s --max-time 5 https://1.1.1.1 && echo 'network OK'"
+echo ""
