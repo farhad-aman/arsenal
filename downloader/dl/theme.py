@@ -1,0 +1,91 @@
+import os
+from dataclasses import dataclass, replace
+
+from .config import Category, Config
+
+
+@dataclass(frozen=True)
+class Theme:
+    name: str
+    accent: str
+    danger: str
+    ok: str
+    warn: str
+    dim: str
+    ramp: tuple[str, ...]
+    mono: bool
+    icons: bool
+
+
+THEMES: dict[str, Theme] = {
+    "aurora": Theme(
+        name="aurora",
+        accent="#4ecdc4",
+        danger="#ff5f56",
+        ok="#5ac26a",
+        warn="#e5a44b",
+        dim="#6b7280",
+        ramp=("#1f6feb", "#4ecdc4", "#5ac26a", "#e5c44b"),
+        mono=False,
+        icons=True,
+    ),
+    "ember": Theme(
+        name="ember",
+        accent="#e58a3c",
+        danger="#ff5f56",
+        ok="#e5c44b",
+        warn="#e5a44b",
+        dim="#7a6a5f",
+        ramp=("#7a2c1d", "#e58a3c", "#e5c44b", "#fff0b3"),
+        mono=False,
+        icons=True,
+    ),
+    "matrix": Theme(
+        name="matrix",
+        accent="#3ddc84",
+        danger="#ff5f56",
+        ok="#3ddc84",
+        warn="#a8e05f",
+        dim="#2f5d3a",
+        ramp=("#0d3b1e", "#1f7a3d", "#3ddc84", "#c8ffd8"),
+        mono=False,
+        icons=True,
+    ),
+    "mono": Theme(
+        name="mono",
+        accent="#ffffff",
+        danger="#ffffff",
+        ok="#ffffff",
+        warn="#ffffff",
+        dim="#999999",
+        ramp=("#ffffff", "#ffffff"),
+        mono=True,
+        icons=False,
+    ),
+}
+
+DEFAULT = "aurora"
+
+
+def select(cfg: Config, env: dict[str, str] | None = None) -> Theme:
+    environ = os.environ if env is None else env
+    if environ.get("NO_COLOR") or environ.get("TERM") == "dumb":
+        return THEMES["mono"]
+    chosen = THEMES.get(cfg.general.theme, THEMES[DEFAULT])
+    if cfg.general.ascii_icons:
+        chosen = replace(chosen, icons=False)
+    return chosen
+
+
+def icon_for(category: Category, theme: Theme) -> str:
+    if theme.icons:
+        return category.icon
+    return category.name[:2].upper().ljust(2)
+
+
+def ramp_color(theme: Theme, position: float) -> str:
+    if not theme.ramp:
+        return theme.accent
+    clamped = min(max(position, 0.0), 1.0)
+    index = round(clamped * (len(theme.ramp) - 1))
+    return theme.ramp[index]
