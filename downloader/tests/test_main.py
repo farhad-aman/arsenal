@@ -180,6 +180,49 @@ def test_the_proxy_flag_is_not_treated_as_a_url(monkeypatch, tmp_path):
     assert seen["urls"] == ["https://e.com/a.iso"]
 
 
+def test_a_youtube_url_takes_the_yt_dlp_route(monkeypatch, tmp_path):
+    calls = []
+    seen = {}
+    _wire(monkeypatch, tmp_path, True, calls)
+    monkeypatch.setattr(entry.shutil, "which", lambda _n: "/opt/homebrew/bin/yt-dlp")
+    monkeypatch.setattr(
+        "dl.tui.ytflow.run_youtube",
+        lambda cfg, urls, proxy=False: (seen.update(urls=urls, proxy=proxy) or ([], False)),
+    )
+    assert entry.main(["https://youtu.be/abc123"]) == 0
+    assert seen["urls"] == ["https://youtu.be/abc123"]
+    assert calls == [], "must not go through the aria2 preview"
+
+
+def test_a_normal_url_never_takes_the_yt_dlp_route(monkeypatch, tmp_path):
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+    monkeypatch.setattr(
+        "dl.tui.ytflow.run_youtube",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not be called")),
+    )
+    assert entry.main(["https://e.com/a.iso"]) == 0
+    assert calls
+
+
+def test_missing_yt_dlp_is_reported_plainly(monkeypatch, tmp_path, capsys):
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+    monkeypatch.setattr(entry.shutil, "which", lambda _n: None)
+    assert entry.main(["https://youtu.be/abc123"]) == 1
+    err = capsys.readouterr().err
+    assert "yt-dlp not found" in err
+    assert "brew install yt-dlp" in err
+
+
+def test_youtube_without_a_terminal_explains_itself(monkeypatch, tmp_path, capsys):
+    calls = []
+    _wire(monkeypatch, tmp_path, False, calls)
+    monkeypatch.setattr(entry.shutil, "which", lambda _n: "/opt/homebrew/bin/yt-dlp")
+    assert entry.main(["https://youtu.be/abc123"]) == 1
+    assert "need a terminal" in capsys.readouterr().err
+
+
 def test_a_cancelled_picker_returns_130(monkeypatch, tmp_path):
     calls = []
     _wire(monkeypatch, tmp_path, True, calls)

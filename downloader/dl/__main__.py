@@ -1,7 +1,8 @@
+import shutil
 import sys
 from pathlib import Path
 
-from . import cli, config, daemon, routing
+from . import cli, config, daemon, routing, youtube
 from .config import CONFIG_FILE
 from .rpc import Aria2Error, Aria2Unreachable
 from .tui.preview import Request, run_preview
@@ -33,6 +34,23 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except KeyboardInterrupt:
         return 130
+
+
+def _run_youtube(cfg, urls: list[str], proxy: bool, interactive: bool) -> int:
+    """YouTube needs yt-dlp: aria2 cannot resolve a watch page into streams."""
+    if shutil.which("yt-dlp") is None:
+        print("dl: yt-dlp not found — brew install yt-dlp", file=sys.stderr)
+        return 1
+    if not interactive:
+        print("dl: YouTube downloads need a terminal to choose quality", file=sys.stderr)
+        return 1
+
+    from .tui.ytflow import run_youtube
+
+    lines, cancelled = run_youtube(cfg, urls, proxy)
+    for line in lines:
+        print(line)
+    return 130 if cancelled else 0
 
 
 def _run(args: list[str]) -> int:
@@ -97,6 +115,14 @@ def _run(args: list[str]) -> int:
         from . import watch
 
         return watch.run(cfg, client)
+
+    if urls:
+        tube = [u for u in urls if youtube.is_youtube(u)]
+        urls = [u for u in urls if u not in tube]
+        if tube:
+            rc = _run_youtube(cfg, tube, proxy, preview and sys.stdout.isatty())
+            if rc or not urls:
+                return rc
 
     if urls:
         daemon.bump_generation(config.STATE_DIR)

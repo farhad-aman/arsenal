@@ -61,6 +61,32 @@ def row_from_status(item: dict, cfg: Config, proxied: bool = False) -> Row:
     )
 
 
+YT_STATUS = {"queued": "waiting", "active": "active", "burning": "active"}
+
+
+def row_from_job(job: dict, cfg: Config) -> Row:
+    """A yt-dlp download rendered with the same shape as an aria2 one."""
+    landed = Path(job.get("file") or "")
+    name = landed.name or job.get("title") or job.get("url", "")
+    done = int(job.get("done", 0) or 0)
+    total = int(job.get("total", 0) or 0)
+    speed = int(job.get("speed", 0) or 0)
+    category = cfg.categories.get("video") or OTHER
+    return Row(
+        gid=job.get("id", ""),
+        name=name,
+        status=YT_STATUS.get(job.get("status", ""), job.get("status", "")),
+        total=total,
+        done=done,
+        speed=speed,
+        eta=(total - done) // speed if speed > 0 and total > done else -1,
+        category=category,
+        path=landed if landed.name else Path(job.get("dir", "")),
+        conns=0,
+        error=job.get("error", "") or "",
+    )
+
+
 def columns_for_width(width: int) -> set[str]:
     columns = set()
     if width >= 80:

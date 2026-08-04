@@ -9,14 +9,14 @@ from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from .. import cli, config, duplicates, history, routing, theme
+from .. import cli, config, duplicates, history, routing, theme, ytjob
 from ..config import STATE_DIR, Config
 from ..format import human_bytes
 from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import CompletedTable, record_path
 from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal
 from .status import StatusBar, stats_from
-from .table import DownloadTable, row_from_status
+from .table import DownloadTable, row_from_job, row_from_status
 
 SPLASH = """\
                     ██████╗ ██╗
@@ -147,12 +147,12 @@ class DlApp(App):
         self.disconnected = False
         items = self._filter_items(polled)
         self._proxy_flags(items)
-        self.table.set_rows(
-            [
-                row_from_status(item, self.cfg, self.proxied.get(item.get("gid", ""), False))
-                for item in items
-            ]
-        )
+        rows = [
+            row_from_status(item, self.cfg, self.proxied.get(item.get("gid", ""), False))
+            for item in items
+        ]
+        rows += [row_from_job(job, self.cfg) for job in self._youtube_jobs()]
+        self.table.set_rows(rows)
         elapsed = int(time.monotonic() - self.started)
         self.status.update_stats(stats_from(stat, elapsed))
         if not items and self.splash_when_empty and not self.showing_completed:
@@ -254,6 +254,14 @@ class DlApp(App):
                 self._queue_next(list(urls), 0)
 
         self.push_screen(AddUrlModal(), queue)
+
+    def _youtube_jobs(self) -> list[dict]:
+        """Live yt-dlp downloads, which the aria2 daemon knows nothing about."""
+        return [
+            job
+            for job in ytjob.list_jobs(STATE_DIR / "yt")
+            if job.get("status") in ("queued", "active", "burning", "paused")
+        ]
 
     def _in_flight(self) -> list[dict]:
         try:
