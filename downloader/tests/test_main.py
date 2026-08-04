@@ -42,7 +42,14 @@ def _wire(monkeypatch, tmp_path, isatty, calls):
     monkeypatch.setattr(daemon, "bump_generation", lambda *a, **k: 1)
     monkeypatch.setattr(cli, "cmd_add", lambda *a, **k: (0, ["gidX"]))
     monkeypatch.setattr("sys.stdout.isatty", lambda: isatty)
-    monkeypatch.setattr(entry, "run_preview", lambda *a, **k: calls.append(a) or ["  done"])
+
+    def fake_preview(cfg, client, gids=(), pending=(), queue=None):
+        calls.append({"gids": gids, "pending": pending, "queue": queue})
+        if queue is not None:
+            queue([None] * len(pending))
+        return ["  done"]
+
+    monkeypatch.setattr(entry, "run_preview", fake_preview)
 
 
 def test_url_with_a_tty_attaches_the_preview(monkeypatch, tmp_path, capsys):
@@ -109,3 +116,47 @@ def test_ctrl_c_returns_130(monkeypatch):
 
     monkeypatch.setattr(entry, "_run", boom)
     assert entry.main(["ls"]) == 130
+
+
+def test_interactive_run_goes_through_the_picker(monkeypatch, tmp_path):
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+    assert entry.main(["https://e.com/a.iso"]) == 0
+    assert calls, "run_preview was not called"
+    assert calls[0].get("pending"), "no pending requests were passed"
+    assert calls[0].get("queue") is not None
+
+
+def test_explicit_dir_skips_the_picker(monkeypatch, tmp_path):
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+    entry.main(["-d", str(tmp_path / "x"), "https://e.com/a.iso"])
+    assert calls
+    assert not calls[0].get("pending")
+
+
+def test_no_preview_skips_the_picker(monkeypatch, tmp_path):
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+    entry.main(["--no-preview", "https://e.com/a.iso"])
+    assert calls == []
+
+
+def test_non_tty_skips_the_picker(monkeypatch, tmp_path):
+    calls = []
+    _wire(monkeypatch, tmp_path, False, calls)
+    entry.main(["https://e.com/a.iso"])
+    assert calls == []
+
+
+def test_a_bad_url_is_rejected_before_the_picker_opens(monkeypatch, tmp_path, capsys):
+    """Do not make someone choose a folder for a typo."""
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+    monkeypatch.undo()
+    _wire(monkeypatch, tmp_path, True, calls)
+    from dl import cli
+
+    monkeypatch.setattr(cli, "cmd_add", lambda *a, **k: (1, []))
+    assert entry.main(["not-a-url"]) == 1
+    assert calls == []

@@ -3,6 +3,7 @@ import shutil
 import threading
 import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
 
 import pytest
 
@@ -187,3 +188,25 @@ def test_rpc_is_never_exposed_beyond_loopback(env):
     cfg, state = env
     args = daemon.aria2_args(cfg, state, 6810, "x")
     assert "--rpc-listen-all=false" in args
+
+
+def test_a_picked_destination_survives_completion(env, fileserver):
+    cfg, state = env
+    client = daemon.ensure_running(cfg, state)
+    picked = state.parent / "hand-picked"
+    picked.mkdir()
+
+    url = f"{fileserver}/sample.iso"
+    gid = client.add_uri(
+        [url], {**add_options(cfg, routing.resolve(url, "sample.iso", cfg)), "dir": str(picked)}
+    )
+
+    target = picked / "sample.iso"
+    assert wait_for(lambda: target.exists() and target.stat().st_size == len(PAYLOAD))
+    assert wait_for(lambda: client.tell_status(gid)["status"] == "complete")
+
+    log = state / "history.jsonl"
+    assert wait_for(lambda: log.exists() and history.tail(log, 5))
+    record = history.tail(log, 5)[-1]
+    assert Path(record["path"]).parent == picked
+    assert not (cfg.categories["iso"].dir / "sample.iso").exists()

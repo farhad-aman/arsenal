@@ -40,12 +40,25 @@ dl watch                 queue URLs as you copy them
 dl kill                  stop the daemon
 ```
 
-`dl <url>` queues the download and attaches a live preview showing just those
-files. Ctrl-C detaches — the downloads keep running — and the preview closes
-itself with a one-line summary per file when they finish.
+Before anything is queued, `dl` asks where to put each file. The routed folder is
+preselected, so `⏎` accepts it; `↑` `↓` choose another, typing filters the list,
+and typing a path starting with `/`, `~`, or `.` offers to create it. `Esc` takes
+the default, `Ctrl-C` cancels before anything is queued.
+
+Candidates are the routed folder, folders you have used recently, the other
+category folders, and the current directory. Recents come from your download
+history, so the list improves as you use it.
+
+Then `dl` attaches a live preview showing just those files. Ctrl-C detaches — the
+downloads keep running — and the preview closes itself with a one-line summary
+per file when they finish.
 
 Piped or redirected output never attaches, so scripts and cron behave as before.
-Pass `--no-preview` to skip it in an interactive shell.
+`--no-preview` and `-d <dir>` both skip the picker and the preview.
+
+A destination you choose — with the picker or with `-d` — is never second-guessed
+on completion. Automatic routing only corrects a file that landed in the folder
+its URL implied but turned out to be a different type.
 
 Inside the preview: `space` pause/resume, `l` / `L` limit, `o` open, `f` reveal
 in Finder, `d` delete, `↑` `↓` move, `Ctrl-C` detach. Adding, reordering, and the

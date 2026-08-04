@@ -166,3 +166,31 @@ async def test_header_shows_filename_and_position(cfg, tmp_path):
         await pilot.pause()
         assert "ubuntu.iso" in screen.header_text
         assert "2 of 3" in screen.header_text
+
+
+async def test_the_list_scrolls_so_the_cursor_stays_visible(cfg, tmp_path):
+    """With 8 built-in categories the window is full, so later candidates —
+    including the current directory — are only reachable if it scrolls."""
+    from dl.tui.picker import MAX_ROWS
+
+    screen = make(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert len(screen.choices) > MAX_ROWS, "need more candidates than fit"
+        assert screen._window_start() == 0
+        for _ in range(len(screen.choices)):
+            await pilot.press("down")
+        assert screen.cursor == len(screen.choices) - 1
+        start = screen._window_start()
+        assert start + MAX_ROWS > screen.cursor, "cursor scrolled out of view"
+        rendered = screen.list_text
+        assert "current dir" in rendered
+
+
+async def test_the_last_candidate_is_the_current_directory(cfg, tmp_path):
+    screen = make(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert screen.choices[-1].kind == "cwd"

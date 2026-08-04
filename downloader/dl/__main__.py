@@ -1,10 +1,10 @@
 import sys
 from pathlib import Path
 
-from . import cli, config, daemon
+from . import cli, config, daemon, routing
 from .config import CONFIG_FILE
 from .rpc import Aria2Error, Aria2Unreachable
-from .tui.preview import run_preview
+from .tui.preview import Request, run_preview
 
 USAGE = """\
 dl — download manager
@@ -99,11 +99,34 @@ def _run(args: list[str]) -> int:
 
     if urls:
         daemon.bump_generation(config.STATE_DIR)
-        rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir)
-        if gids and preview and sys.stdout.isatty():
-            for line in run_preview(cfg, client, gids):
-                print(line)
-        return rc
+        interactive = preview and sys.stdout.isatty()
+        if not interactive:
+            rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir)
+            return rc
+
+        if explicit_dir is not None or not all(cli.looks_like_url(u) for u in urls):
+            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir)
+            if gids:
+                for line in run_preview(cfg, client, gids=gids):
+                    print(line)
+            return rc
+
+        pending = []
+        for url in urls:
+            name = routing.filename_from_url(url)
+            resolved = routing.resolve(url, name, cfg)
+            pending.append(Request(url, name or url, resolved.path, resolved.category))
+
+        outcome = {"rc": 0}
+
+        def queue(chosen):
+            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, chosen or None)
+            outcome["rc"] = rc
+            return gids
+
+        for line in run_preview(cfg, client, pending=pending, queue=queue):
+            print(line)
+        return outcome["rc"]
 
     if not sys.stdout.isatty():
         print("dl: not a terminal — try `dl ls`", file=sys.stderr)

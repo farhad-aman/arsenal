@@ -64,6 +64,7 @@ class PickerScreen(ModalScreen[Path | None]):
         self.cursor = 0
         self.error = ""
         self.input_value = ""
+        self.list_text = ""
 
     @property
     def header_text(self) -> str:
@@ -98,9 +99,17 @@ class PickerScreen(ModalScreen[Path | None]):
         self.error = ""
         self._repaint()
 
+    def _window_start(self) -> int:
+        if len(self.choices) <= MAX_ROWS:
+            return 0
+        highest = len(self.choices) - MAX_ROWS
+        return max(0, min(self.cursor - MAX_ROWS + 1, highest))
+
     def _repaint(self) -> None:
         rows = []
-        for position, item in enumerate(self.choices[:MAX_ROWS]):
+        start = self._window_start()
+        for offset, item in enumerate(self.choices[start : start + MAX_ROWS]):
+            position = start + offset
             selected = position == self.cursor
             marker = "▌" if selected else " "
             icon = item.icon if self.theme_data.icons else item.kind[:2].upper().ljust(2)
@@ -109,7 +118,8 @@ class PickerScreen(ModalScreen[Path | None]):
             if selected and not self.theme_data.mono:
                 line = f"[{self.theme_data.accent}]{line}[/]"
             rows.append(line)
-        self.query_one("#picker-list", Static).update("\n".join(rows) or "  (no match)")
+        self.list_text = "\n".join(rows) or "  (no match)"
+        self.query_one("#picker-list", Static).update(self.list_text)
         self.query_one("#picker-error", Static).update(
             f"  ⚠ {self.error}" if self.error else ""
         )
