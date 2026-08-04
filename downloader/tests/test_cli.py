@@ -2,12 +2,12 @@ import io
 
 import pytest
 
-from dl import cli, config, routing
+from dl import cli, routing
 
 
 @pytest.fixture
-def cfg():
-    return config.defaults()
+def cfg(sandbox_cfg):
+    return sandbox_cfg
 
 
 class FakeClient:
