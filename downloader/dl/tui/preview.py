@@ -1,11 +1,23 @@
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
+from .. import history
+from ..config import Category
 from ..format import human_bytes, human_duration, human_speed
 from ..theme import select
 from .app import DlApp
+from .picker import PickerScreen
 
 RUNNING = ("active", "waiting")
+
+
+@dataclass(frozen=True)
+class Request:
+    url: str
+    filename: str
+    default_dir: Path
+    category: Category
 PREVIEW_HINT = (
     "space pause/resume   l limit   L limit this   o open   f finder   "
     "d delete   ^C detach"
@@ -57,15 +69,52 @@ class PreviewApp(DlApp):
 
     splash_when_empty = False
 
-    def __init__(self, cfg, client, gids: list[str]):
+    def __init__(self, cfg, client, gids=(), pending=(), queue=None):
         super().__init__(cfg, client)
         self.watch = set(gids)
         self.results: list[dict] = []
         self.hint_text = PREVIEW_HINT
+        self.pending = list(pending)
+        self.queue = queue
+        self.picking = bool(self.pending)
+        self.chosen: list[Path | None] = []
 
     def on_mount(self) -> None:
         super().on_mount()
         self.hint.update(PREVIEW_HINT)
+        if self.pending:
+            self._ask(0)
+
+    def _ask(self, index: int) -> None:
+        if index >= len(self.pending):
+            self._finish_picking()
+            return
+        item = self.pending[index]
+
+        def chosen(value):
+            self.chosen.append(value)
+            self._ask(index + 1)
+
+        self.push_screen(
+            PickerScreen(
+                filename=item.filename,
+                default_dir=item.default_dir,
+                category=item.category,
+                cfg=self.cfg,
+                records=history.tail(self.history_log, 200),
+                index=index,
+                total=len(self.pending),
+                theme=self.theme_data,
+            ),
+            chosen,
+        )
+
+    def _finish_picking(self) -> None:
+        self.picking = False
+        gids = self.queue(self.chosen) if self.queue else []
+        self.watch = set(gids)
+        if not self.watch:
+            self.exit()
 
     def action_add(self) -> None:
         return None
@@ -86,7 +135,7 @@ class PreviewApp(DlApp):
         return [item for item in items if item.get("gid") in self.watch]
 
     def _after_refresh(self, items: list[dict]) -> None:
-        if items:
+        if self.picking or items:
             return
         self.results = self._collect_results()
         self.exit()
@@ -112,7 +161,7 @@ class PreviewApp(DlApp):
         return sorted(collected, key=lambda r: r["name"])
 
 
-def run_preview(cfg, client, gids: list[str]) -> list[str]:
-    app = PreviewApp(cfg, client, gids)
+def run_preview(cfg, client, gids=(), pending=(), queue=None) -> list[str]:
+    app = PreviewApp(cfg, client, gids, pending, queue)
     app.run()
     return summarise(app.results, icons=select(cfg).icons)

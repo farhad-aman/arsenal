@@ -1,7 +1,7 @@
 import pytest
 
 from dl.rpc import Aria2Unreachable
-from dl.tui.preview import PreviewApp, summarise
+from dl.tui.preview import PreviewApp, Request, summarise
 
 
 @pytest.fixture
@@ -282,3 +282,92 @@ async def test_preview_ignores_the_reorder_keys(cfg):
         await pilot.press("J")
         await pilot.press("K")
         assert client.positions == []
+
+
+def request(tmp_path, cfg, name="movie.mkv"):
+    return Request(
+        url=f"https://e.com/{name}",
+        filename=name,
+        default_dir=tmp_path / "default",
+        category=cfg.categories["video"],
+    )
+
+
+async def test_picking_shows_one_screen_per_pending_file(cfg, tmp_path):
+    client = PreviewClient(active=())
+    seen = []
+
+    def queue(chosen):
+        seen.append(list(chosen))
+        return []
+
+    app = PreviewApp(
+        cfg,
+        client,
+        pending=[request(tmp_path, cfg, "a.mkv"), request(tmp_path, cfg, "b.mkv")],
+        queue=queue,
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.picking is True
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+    assert seen == [[tmp_path / "default", tmp_path / "default"]]
+
+
+async def test_picking_does_not_exit_the_app_before_queuing(cfg, tmp_path):
+    client = PreviewClient(active=())
+    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: [])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await app.refresh_data()
+        await pilot.pause()
+        assert app.is_running is True
+        assert app.picking is True
+
+
+async def test_escape_records_none_and_moves_on(cfg, tmp_path):
+    client = PreviewClient(active=())
+    seen = []
+    app = PreviewApp(
+        cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: seen.append(list(c)) or []
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+    assert seen == [[None]]
+
+
+async def test_queue_result_becomes_the_watch_set(cfg, tmp_path):
+    client = PreviewClient(active=("g1",))
+    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.picking is False
+        assert app.watch == {"g1"}
+        assert app.is_running is True
+
+
+async def test_app_exits_when_queuing_produced_nothing(cfg, tmp_path):
+    client = PreviewClient(active=())
+    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: [])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+    assert app.is_running is False
+
+
+async def test_gids_only_construction_still_works(cfg):
+    client = PreviewClient(active=("g1",))
+    app = PreviewApp(cfg, client, ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.picking is False
+        assert app.watch == {"g1"}
