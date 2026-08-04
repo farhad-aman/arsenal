@@ -7,7 +7,7 @@ from ..config import Category
 from ..format import human_bytes, human_duration, human_speed
 from ..theme import select
 from .app import DlApp
-from .picker import PickerScreen
+from .picker import CancelAll, PickerScreen
 
 RUNNING = ("active", "waiting")
 
@@ -77,6 +77,7 @@ class PreviewApp(DlApp):
         self.pending = list(pending)
         self.queue = queue
         self.picking = bool(self.pending)
+        self.cancelled = False
         self.chosen: list[Path | None] = []
 
     def on_mount(self) -> None:
@@ -92,6 +93,9 @@ class PreviewApp(DlApp):
         item = self.pending[index]
 
         def chosen(value):
+            if isinstance(value, CancelAll):
+                self._cancel_picking()
+                return
             self.chosen.append(value)
             self._ask(index + 1)
 
@@ -108,6 +112,11 @@ class PreviewApp(DlApp):
             ),
             chosen,
         )
+
+    def _cancel_picking(self) -> None:
+        self.cancelled = True
+        self.picking = False
+        self.exit()
 
     def _finish_picking(self) -> None:
         self.picking = False
@@ -161,7 +170,11 @@ class PreviewApp(DlApp):
         return sorted(collected, key=lambda r: r["name"])
 
 
-def run_preview(cfg, client, gids=(), pending=(), queue=None) -> list[str]:
+def run_preview(cfg, client, gids=(), pending=(), queue=None) -> tuple[list[str], bool]:
+    """Return the lines to print and whether the batch was cancelled."""
     app = PreviewApp(cfg, client, gids, pending, queue)
     app.run()
-    return summarise(app.results, icons=select(cfg).icons)
+    icons = select(cfg).icons
+    if app.cancelled:
+        return [f"  {MARKS[icons]['fail']} cancelled — nothing queued"], True
+    return summarise(app.results, icons=icons), False

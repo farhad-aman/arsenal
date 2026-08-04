@@ -104,7 +104,8 @@ def _run(args: list[str]) -> int:
         if explicit_dir is not None or not all(cli.looks_like_url(u) for u in urls):
             rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir)
             if gids:
-                for line in run_preview(cfg, client, gids=gids):
+                lines, _cancelled = run_preview(cfg, client, gids=gids)
+                for line in lines:
                     print(line)
             return rc
 
@@ -121,9 +122,10 @@ def _run(args: list[str]) -> int:
             outcome["rc"] = rc
             return gids
 
-        for line in run_preview(cfg, client, pending=pending, queue=queue):
+        lines, cancelled = run_preview(cfg, client, pending=pending, queue=queue)
+        for line in lines:
             print(line)
-        return outcome["rc"]
+        return 130 if cancelled else outcome["rc"]
 
     if not sys.stdout.isatty():
         print("dl: not a terminal — try `dl ls`", file=sys.stderr)

@@ -188,6 +188,57 @@ async def test_the_list_scrolls_so_the_cursor_stays_visible(cfg, tmp_path):
         assert "current dir" in rendered
 
 
+async def test_typing_a_parent_path_lists_real_subdirectories(cfg, tmp_path):
+    (tmp_path / "projects").mkdir()
+    (tmp_path / "pictures").mkdir()
+    screen = make(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.query_one("#picker-input", Input).value = f"{tmp_path}/pro"
+        await pilot.pause()
+        assert tmp_path / "projects" in [c.path for c in screen.choices]
+        assert tmp_path / "pictures" not in [c.path for c in screen.choices]
+        assert "on disk" in screen.list_text
+
+
+async def test_an_existing_directory_is_offered_once(cfg, tmp_path):
+    (tmp_path / "projects").mkdir()
+    screen = make(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.query_one("#picker-input", Input).value = str(tmp_path / "projects")
+        await pilot.pause()
+        paths = [c.path for c in screen.choices]
+        assert paths.count(tmp_path / "projects") == 1
+        assert [c.kind for c in screen.choices].count("create") == 0
+
+
+async def test_an_unknown_user_expansion_does_not_crash(cfg, tmp_path):
+    """~s is not a home directory, and expanduser raises rather than passing it
+    through."""
+    screen = make(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        for ch in "~s":
+            await pilot.press(ch)
+        await pilot.pause()
+        assert screen.input_value == "~s"
+
+
+async def test_ctrl_c_cancels_the_whole_batch(cfg, tmp_path):
+    from dl.tui.picker import CANCEL
+
+    app = Host(make(cfg, tmp_path))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+    assert app.result is CANCEL
+
+
 async def test_the_last_candidate_is_the_current_directory(cfg, tmp_path):
     screen = make(cfg, tmp_path)
     app = Host(screen)

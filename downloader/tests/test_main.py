@@ -47,7 +47,7 @@ def _wire(monkeypatch, tmp_path, isatty, calls):
         calls.append({"gids": gids, "pending": pending, "queue": queue})
         if queue is not None:
             queue([None] * len(pending))
-        return ["  done"]
+        return ["  done"], False
 
     monkeypatch.setattr(entry, "run_preview", fake_preview)
 
@@ -125,6 +125,32 @@ def test_interactive_run_goes_through_the_picker(monkeypatch, tmp_path):
     assert calls, "run_preview was not called"
     assert calls[0].get("pending"), "no pending requests were passed"
     assert calls[0].get("queue") is not None
+
+
+def test_a_cancelled_picker_returns_130(monkeypatch, tmp_path):
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+
+    def cancelled_preview(cfg, client, gids=(), pending=(), queue=None):
+        calls.append({"gids": gids, "pending": pending, "queue": queue})
+        return ["  cancelled — nothing queued"], True
+
+    monkeypatch.setattr(entry, "run_preview", cancelled_preview)
+    assert entry.main(["https://e.com/a.iso"]) == 130
+
+
+def test_a_cancelled_picker_never_queues(monkeypatch, tmp_path):
+    from dl import cli
+
+    added = []
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+    monkeypatch.setattr(cli, "cmd_add", lambda *a, **k: (added.append(a) or (0, ["gidX"])))
+    monkeypatch.setattr(
+        entry, "run_preview", lambda *a, **k: (["  cancelled — nothing queued"], True)
+    )
+    entry.main(["https://e.com/a.iso"])
+    assert added == []
 
 
 def test_explicit_dir_skips_the_picker(monkeypatch, tmp_path):

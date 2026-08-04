@@ -9,6 +9,7 @@ PATHLIKE = ("/", "~", ".")
 RECENT_ICON = "🕘"
 CWD_ICON = "📁"
 CREATE_ICON = "✏️"
+DISK_ICON = "📂"
 
 
 @dataclass(frozen=True)
@@ -78,11 +79,48 @@ def candidates(
     return out
 
 
+def _expanded(path: Path) -> Path | None:
+    """Path("~s").expanduser() raises for an unknown user instead of passing the
+    text through, so every expansion has to be guarded."""
+    try:
+        return path.expanduser()
+    except RuntimeError:
+        return None
+
+
 def create_candidate(text: str) -> Candidate | None:
     value = text.strip()
     if not value or not value.startswith(PATHLIKE):
         return None
-    return Candidate(Path(value).expanduser(), CREATE_ICON, "create", "create")
+    target = _expanded(Path(value))
+    if target is None or target.is_dir():
+        return None
+    return Candidate(target, CREATE_ICON, "create", "create")
+
+
+def disk_candidates(text: str, limit: int = 6) -> list[Candidate]:
+    """Directories on disk that complete what has been typed so far."""
+    value = text.strip()
+    if not value or not value.startswith(PATHLIKE):
+        return []
+    typed = Path(value)
+    base, fragment = (typed, "") if value.endswith("/") else (typed.parent, typed.name)
+    root = _expanded(base)
+    if root is None or not root.is_dir():
+        return []
+    needle = fragment.lower()
+    try:
+        children = sorted(root.iterdir())
+    except OSError:
+        return []
+    found = [
+        child
+        for child in children
+        if child.is_dir()
+        and child.name.lower().startswith(needle)
+        and (needle.startswith(".") or not child.name.startswith("."))
+    ]
+    return [Candidate(child, DISK_ICON, "on disk", "disk") for child in found[:limit]]
 
 
 def display_path(path: Path) -> str:

@@ -7,6 +7,7 @@ from dl.destinations import (
     Candidate,
     candidates,
     create_candidate,
+    disk_candidates,
     ensure_writable,
     filter_candidates,
     recent_destinations,
@@ -103,7 +104,7 @@ def test_candidates_never_repeat_a_path(cfg):
     assert len(paths) == len(set(paths))
 
 
-@pytest.mark.parametrize("text", ["/tmp/x", "~/stuff", "./here", "."])
+@pytest.mark.parametrize("text", ["/tmp/x", "~/stuff", "./here"])
 def test_create_candidate_for_pathlike_text(text):
     made = create_candidate(text)
     assert made is not None
@@ -119,6 +120,70 @@ def test_create_candidate_rejects_non_paths(text):
 def test_create_candidate_expands_home():
     made = create_candidate("~/stuff")
     assert "~" not in str(made.path)
+
+
+def test_create_candidate_survives_an_unknown_user(tmp_path):
+    """Path("~s").expanduser() raises rather than returning the text unchanged."""
+    assert create_candidate("~s") is None
+
+
+def test_create_candidate_is_none_for_a_directory_that_already_exists(tmp_path):
+    assert create_candidate(str(tmp_path)) is None
+
+
+def test_disk_candidates_list_real_subdirectories(tmp_path):
+    (tmp_path / "projects").mkdir()
+    (tmp_path / "pictures").mkdir()
+    found = disk_candidates(f"{tmp_path}/pro")
+    assert [c.path for c in found] == [tmp_path / "projects"]
+    assert found[0].kind == "disk"
+
+
+def test_disk_candidates_skip_files(tmp_path):
+    (tmp_path / "notes.txt").write_text("x")
+    assert disk_candidates(f"{tmp_path}/notes") == []
+
+
+def test_disk_candidates_list_everything_under_a_trailing_slash(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    assert [c.path for c in disk_candidates(f"{tmp_path}/")] == [tmp_path / "a", tmp_path / "b"]
+
+
+def test_disk_candidates_are_case_insensitive(tmp_path):
+    (tmp_path / "Projects").mkdir()
+    assert [c.path for c in disk_candidates(f"{tmp_path}/proj")] == [tmp_path / "Projects"]
+
+
+def test_disk_candidates_hide_dotfiles_until_asked_for(tmp_path):
+    (tmp_path / ".config").mkdir()
+    assert disk_candidates(f"{tmp_path}/") == []
+    assert [c.path for c in disk_candidates(f"{tmp_path}/.co")] == [tmp_path / ".config"]
+
+
+def test_disk_candidates_expand_home():
+    found = disk_candidates("~/")
+    assert found
+    assert all(c.path.parent == Path.home() for c in found)
+
+
+@pytest.mark.parametrize("text", ["", "movies", "ser"])
+def test_disk_candidates_ignore_non_paths(text):
+    assert disk_candidates(text) == []
+
+
+def test_disk_candidates_ignore_an_unknown_user(tmp_path):
+    assert disk_candidates("~nobody-like-this/") == []
+
+
+def test_disk_candidates_ignore_a_parent_that_does_not_exist(tmp_path):
+    assert disk_candidates(f"{tmp_path}/missing/deeper") == []
+
+
+def test_disk_candidates_respect_the_limit(tmp_path):
+    for i in range(10):
+        (tmp_path / f"d{i}").mkdir()
+    assert len(disk_candidates(f"{tmp_path}/", limit=3)) == 3
 
 
 def test_filter_returns_everything_for_empty_text(cfg):

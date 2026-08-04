@@ -364,6 +364,71 @@ async def test_app_exits_when_queuing_produced_nothing(cfg, tmp_path):
     assert app.is_running is False
 
 
+async def test_ctrl_c_in_the_picker_queues_nothing_and_exits(cfg, tmp_path):
+    client = PreviewClient(active=())
+    seen = []
+    app = PreviewApp(
+        cfg,
+        client,
+        pending=[request(tmp_path, cfg, "a.mkv"), request(tmp_path, cfg, "b.mkv")],
+        queue=lambda c: seen.append(list(c)) or ["g1"],
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+    assert seen == []
+    assert app.cancelled is True
+    assert app.watch == set()
+    assert app.is_running is False
+
+
+async def test_cancelling_stops_the_remaining_pickers(cfg, tmp_path):
+    """The second file must not be asked about after the batch is abandoned."""
+    client = PreviewClient(active=())
+    app = PreviewApp(
+        cfg,
+        client,
+        pending=[request(tmp_path, cfg, "a.mkv"), request(tmp_path, cfg, "b.mkv")],
+        queue=lambda c: [],
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+    assert app.chosen == []
+
+
+def stub_app(monkeypatch, *, cancelled, results):
+    from dl.tui import preview as preview_module
+
+    class Stub:
+        def __init__(self, *a, **k):
+            self.cancelled = cancelled
+            self.results = results
+
+        def run(self):
+            return None
+
+    monkeypatch.setattr(preview_module, "PreviewApp", Stub)
+    return preview_module
+
+
+async def test_run_preview_reports_cancellation(cfg, monkeypatch):
+    module = stub_app(monkeypatch, cancelled=True, results=[])
+    lines, cancelled = module.run_preview(cfg, PreviewClient(), pending=[1], queue=None)
+    assert cancelled is True
+    assert any("cancelled" in line for line in lines)
+
+
+async def test_run_preview_reports_completion(cfg, monkeypatch):
+    done = [{"name": "a.mkv", "status": "complete", "bytes": 1024, "seconds": 0}]
+    module = stub_app(monkeypatch, cancelled=False, results=done)
+    lines, cancelled = module.run_preview(cfg, PreviewClient(), gids=["g1"])
+    assert cancelled is False
+    assert any("a.mkv" in line for line in lines)
+
+
 async def test_gids_only_construction_still_works(cfg):
     client = PreviewClient(active=("g1",))
     app = PreviewApp(cfg, client, ["g1"])

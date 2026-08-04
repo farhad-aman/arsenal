@@ -71,7 +71,8 @@ while idle.
 
 `dl <url>` asks where to save each file — the routed folder preselected, so `⏎`
 accepts — then attaches a live preview so you can pause, limit, open, or delete
-them without leaving that shell.
+them without leaving that shell. Typing a path browses the real directories on
+disk; `Ctrl-C` in the picker cancels before anything is queued.
 
 ```
 Usage: dl [options]

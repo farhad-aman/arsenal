@@ -11,6 +11,7 @@ from ..destinations import (
     Candidate,
     candidates,
     create_candidate,
+    disk_candidates,
     display_path,
     ensure_writable,
     filter_candidates,
@@ -19,15 +20,23 @@ from ..theme import Theme
 from .table import escape
 
 MAX_ROWS = 8
-PICKER_HINT = "⏎ accept    ↑↓ choose    esc use default    ^C cancel all"
+PICKER_HINT = "⏎ accept    ↑↓ choose    ⇥ complete    esc use default    ^C cancel all"
 
 
-class PickerScreen(ModalScreen[Path | None]):
+class CancelAll:
+    """Dismissal value meaning the whole batch was abandoned, distinct from the
+    None that means "use the routed default"."""
+
+
+CANCEL = CancelAll()
+
+
+class PickerScreen(ModalScreen[Path | CancelAll | None]):
     """Choose where one download should be saved.
 
-    Dismisses with the chosen directory, or None meaning "use the routed
-    default". up/down are priority bindings so the focused filter Input cannot
-    swallow them.
+    Dismisses with the chosen directory, None meaning "use the routed default",
+    or CANCEL. up/down are priority bindings so the focused filter Input cannot
+    swallow them; ctrl+c likewise, since Input binds it to copy.
     """
 
     BINDINGS = [
@@ -35,6 +44,7 @@ class PickerScreen(ModalScreen[Path | None]):
         Binding("up", "move_up", "up", priority=True),
         Binding("down", "move_down", "down", priority=True),
         Binding("tab", "complete", "complete", priority=True),
+        Binding("ctrl+c", "cancel_all", "cancel", priority=True),
     ]
 
     def __init__(
@@ -91,10 +101,17 @@ class PickerScreen(ModalScreen[Path | None]):
 
     def _rebuild(self) -> None:
         items = filter_candidates(self.input_value, self.all_candidates)
+        items += disk_candidates(self.input_value)
         made = create_candidate(self.input_value)
         if made is not None:
-            items = items + [made]
-        self.choices = items
+            items.append(made)
+        seen: set[Path] = set()
+        unique: list[Candidate] = []
+        for item in items:
+            if item.path not in seen:
+                seen.add(item.path)
+                unique.append(item)
+        self.choices = unique
         self.cursor = min(self.cursor, max(len(items) - 1, 0))
         self.error = ""
         self._repaint()
@@ -143,6 +160,9 @@ class PickerScreen(ModalScreen[Path | None]):
 
     def action_use_default(self) -> None:
         self.dismiss(None)
+
+    def action_cancel_all(self) -> None:
+        self.dismiss(CANCEL)
 
     def _accept(self) -> None:
         if not self.choices:

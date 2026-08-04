@@ -41,12 +41,18 @@ dl kill                  stop the daemon
 
 Before anything is queued, `dl` asks where to put each file. The routed folder is
 preselected, so `⏎` accepts it; `↑` `↓` choose another, typing filters the list,
-and typing a path starting with `/`, `~`, or `.` offers to create it. `Esc` takes
-the default, `Ctrl-C` cancels before anything is queued.
+and `⇥` completes the highlighted path into the input. `Esc` takes the default,
+`Ctrl-C` cancels the whole batch before anything is queued.
 
 Candidates are the routed folder, folders you have used recently, the other
 category folders, and the current directory. Recents come from your download
 history, so the list improves as you use it.
+
+Typing a path starting with `/`, `~`, or `.` switches to browsing the disk:
+`~/pro` lists the real directories under `~` that start with "pro", and a
+trailing slash lists everything one level down. Dotfiles stay hidden until the
+fragment you type starts with a dot. If nothing on disk matches, the last row
+offers to create the directory you typed.
 
 Then `dl` attaches a live preview showing just those files. Ctrl-C detaches — the
 downloads keep running — and the preview closes itself with a one-line summary
