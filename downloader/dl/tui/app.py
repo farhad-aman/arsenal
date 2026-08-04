@@ -28,10 +28,15 @@ Screen { layout: vertical; }
 StatusBar { height: 1; dock: top; padding: 0 1; }
 #body { height: 1fr; padding: 0 1; }
 #hint { dock: bottom; height: 1; padding: 0 1; }
-AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal { align: center middle; }
-#add-box, #limit-box, #confirm-box, #delete-box {
-    width: 70; padding: 1 2; border: round $accent; background: $surface;
+AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen {
+    align: center middle;
 }
+#add-box, #limit-box, #confirm-box, #delete-box, #picker-box {
+    width: 76; padding: 1 2; border: round $accent; background: $surface;
+}
+#picker-list { height: auto; }
+#picker-error { height: auto; }
+#picker-head { text-style: bold; }
 #delete-box Button { width: 100%; margin-top: 1; }
 #urls { height: 8; }
 """
