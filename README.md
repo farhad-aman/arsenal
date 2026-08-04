@@ -69,12 +69,16 @@ destination folders, speed limits, and a live animated TUI. Drives a lazily
 spawned `aria2c` daemon, so Ctrl-C never interrupts a transfer and nothing runs
 while idle.
 
+`dl <url>` attaches a live preview for the files it just queued, so you can
+pause, limit, open, or delete them without leaving that shell.
+
 ```
 Usage: dl [options]
 
-  dl <url> [url...]     queue downloads, exit immediately
+  dl <url> [url...]     queue downloads and watch them live
   dl -f <file|->        queue URLs from a file or stdin
   dl -d <dir> <url>     override destination for this download
+  dl --no-preview <url> queue and exit without the live preview
   dl                    open the TUI
 
   dl ls                 list downloads

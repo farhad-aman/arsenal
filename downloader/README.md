@@ -27,9 +27,10 @@ make uninstall   # remove venv and shim
 ## Usage
 
 ```
-dl <url> [url...]        queue downloads
+dl <url> [url...]        queue downloads and watch them live
 dl -f <file|->           queue URLs from a file or stdin
 dl -d <dir> <url>        override the destination for this download
+dl --no-preview <url>    queue and exit without the live preview
 dl                       open the TUI
 
 dl ls                    list downloads
@@ -39,9 +40,19 @@ dl watch                 queue URLs as you copy them
 dl kill                  stop the daemon
 ```
 
-`dl <url>` returns immediately — the daemon keeps downloading after your shell
-exits. `dl ls` prints fixed columns with no colour when piped, so
-`dl ls | grep paused` works.
+`dl <url>` queues the download and attaches a live preview showing just those
+files. Ctrl-C detaches — the downloads keep running — and the preview closes
+itself with a one-line summary per file when they finish.
+
+Piped or redirected output never attaches, so scripts and cron behave as before.
+Pass `--no-preview` to skip it in an interactive shell.
+
+Inside the preview: `space` pause/resume, `l` / `L` limit, `o` open, `f` reveal
+in Finder, `d` delete, `↑` `↓` move, `Ctrl-C` detach. Adding, reordering, and the
+Completed tab are dashboard-only — run `dl` for those.
+
+`dl ls` prints fixed columns with no colour when piped, so `dl ls | grep paused`
+works.
 
 Magnet links and `.torrent` URLs work anywhere a URL does.
 

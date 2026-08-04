@@ -161,6 +161,28 @@ def test_failed_download_records_an_error_row(env, fileserver):
     )
 
 
+async def test_preview_exits_when_a_real_download_finishes(env, fileserver):
+    import asyncio
+
+    from dl.tui.preview import PreviewApp
+
+    cfg, state = env
+    client = daemon.ensure_running(cfg, state)
+    gid = queue(cfg, client, f"{fileserver}/sample.iso", "sample.iso")
+
+    app = PreviewApp(cfg, client, [gid])
+    async with app.run_test() as pilot:
+        for _ in range(300):
+            await app.refresh_data()
+            if not app.is_running:
+                break
+            await asyncio.sleep(0.1)
+
+    target = cfg.categories["iso"].dir / "sample.iso"
+    assert target.exists() and target.stat().st_size == len(PAYLOAD)
+    assert app.results and app.results[0]["status"] == "complete"
+
+
 def test_rpc_is_never_exposed_beyond_loopback(env):
     cfg, state = env
     args = daemon.aria2_args(cfg, state, 6810, "x")

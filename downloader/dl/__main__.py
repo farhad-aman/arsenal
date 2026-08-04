@@ -4,6 +4,7 @@ from pathlib import Path
 from . import cli, config, daemon
 from .config import CONFIG_FILE
 from .rpc import Aria2Error, Aria2Unreachable
+from .tui.preview import run_preview
 
 USAGE = """\
 dl — download manager
@@ -11,6 +12,7 @@ dl — download manager
   dl <url> [url...]        queue downloads
   dl -f <file|->           queue URLs from a file or stdin
   dl -d <dir> <url>        override the destination for this download
+  --no-preview             queue and exit without attaching the live preview
   dl                       open the TUI
 
   dl ls                    list downloads
@@ -38,6 +40,9 @@ def _run(args: list[str]) -> int:
     if args and args[0] in ("-h", "--help", "help"):
         print(USAGE)
         return 0
+
+    preview = "--no-preview" not in args
+    args = [a for a in args if a != "--no-preview"]
 
     if not CONFIG_FILE.exists():
         config.write_default(CONFIG_FILE)
@@ -94,7 +99,10 @@ def _run(args: list[str]) -> int:
 
     if urls:
         daemon.bump_generation(config.STATE_DIR)
-        rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir)
+        rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir)
+        if gids and preview and sys.stdout.isatty():
+            for line in run_preview(cfg, client, gids):
+                print(line)
         return rc
 
     if not sys.stdout.isatty():
