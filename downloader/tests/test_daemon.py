@@ -106,6 +106,35 @@ def test_aria2_args_restore_session_only_when_present(tmp_path, cfg):
     assert f"--input-file={tmp_path / 'session'}" in daemon.aria2_args(cfg, tmp_path, 6810, "x")
 
 
+def test_bindable_is_false_while_a_socket_holds_the_port():
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        port = held.getsockname()[1]
+        assert daemon._bindable(port) is False
+    assert daemon._bindable(port) is True
+
+
+def test_ensure_running_falls_through_to_the_next_port_when_bind_fails(tmp_path, cfg, monkeypatch):
+    import socket
+
+    monkeypatch.setattr(daemon.shutil, "which", lambda _: "/usr/bin/aria2c")
+    monkeypatch.setattr(daemon, "_probe", lambda port, secret: "free")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+        held.bind(("127.0.0.1", daemon.PORT_RANGE.start))
+        held.listen(1)
+        spawned = []
+        monkeypatch.setattr(daemon, "_spawn", lambda c, s, port, sec: spawned.append(port))
+        monkeypatch.setattr(daemon, "_await_rpc", lambda port, sec, t: bool(spawned))
+
+        client = daemon.ensure_running(cfg, tmp_path)
+        assert daemon.PORT_RANGE.start not in spawned
+        assert client.port == spawned[0]
+
+
 def test_ensure_running_without_binary_raises(tmp_path, cfg, monkeypatch):
     monkeypatch.setattr(daemon.shutil, "which", lambda _: None)
     with pytest.raises(daemon.Aria2Missing):

@@ -1,6 +1,7 @@
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -120,6 +121,17 @@ def _probe(port: int, secret: str) -> str:
         return "free"
 
 
+def _bindable(port: int) -> bool:
+    """A daemon shutting down refuses connections while still holding its
+    listening socket, so 'connection refused' does not imply we can bind."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
 def _spawn(cfg: Config, state: Path, port: int, secret: str) -> None:
     state.mkdir(parents=True, exist_ok=True)
     with open(state / "spawn.log", "wb") as log:
@@ -151,28 +163,37 @@ def ensure_running(cfg: Config, state: Path = STATE_DIR) -> Aria2:
     preferred = read_port(state)
     candidates = [preferred] + [p for p in PORT_RANGE if p != preferred]
 
-    free_port = None
+    free_ports = []
     for port in candidates:
         status = _probe(port, secret)
         if status == "ours":
             write_port(state, port)
             return Aria2("127.0.0.1", port, secret)
-        if status == "free" and free_port is None:
-            free_port = port
+        if status == "free":
+            free_ports.append(port)
 
-    if free_port is None:
+    if not free_ports:
         raise DaemonStartFailed(f"no free port in {PORT_RANGE.start}-{PORT_RANGE.stop - 1}")
 
-    _spawn(cfg, state, free_port, secret)
-    client = Aria2("127.0.0.1", free_port, secret, timeout=1.0)
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        try:
-            client.get_version()
-            write_port(state, free_port)
-            return Aria2("127.0.0.1", free_port, secret)
-        except (Aria2Unreachable, Aria2Error):
-            time.sleep(0.1)
+    for port in free_ports:
+        if not _bindable(port):
+            continue
+        _spawn(cfg, state, port, secret)
+        if _await_rpc(port, secret, 5.0):
+            write_port(state, port)
+            return Aria2("127.0.0.1", port, secret)
 
     quarantine_session(state)
     raise DaemonStartFailed(f"aria2c did not answer within 5s\n{_tail_log(state)}")
+
+
+def _await_rpc(port: int, secret: str, timeout: float) -> bool:
+    client = Aria2("127.0.0.1", port, secret, timeout=1.0)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            client.get_version()
+            return True
+        except (Aria2Unreachable, Aria2Error):
+            time.sleep(0.1)
+    return False
