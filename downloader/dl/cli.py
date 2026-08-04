@@ -32,17 +32,20 @@ def _ensure_writable(target: Path) -> bool:
     return os.access(target, os.W_OK)
 
 
-def cmd_add(urls: list[str], cfg: Config, client, explicit_dir: Path | None) -> int:
+def cmd_add(
+    urls: list[str], cfg: Config, client, explicit_dir: Path | None
+) -> tuple[int, list[str]]:
     if not urls:
         print("dl: no URLs given", file=sys.stderr)
-        return 1
+        return 1, []
     bad = [u for u in urls if not looks_like_url(u)]
     if bad:
         for value in bad:
             print(f"dl: not a URL: {value!r}", file=sys.stderr)
         print("dl: run `dl --help` for usage", file=sys.stderr)
-        return 1
+        return 1, []
     failures = 0
+    gids: list[str] = []
     for url in urls:
         name = routing.filename_from_url(url)
         resolution = routing.resolve(url, name, cfg, explicit_dir)
@@ -50,9 +53,9 @@ def cmd_add(urls: list[str], cfg: Config, client, explicit_dir: Path | None) -> 
             print(f"dl: cannot write to {resolution.path}", file=sys.stderr)
             failures += 1
             continue
-        client.add_uri([url], add_options(cfg, resolution))
+        gids.append(client.add_uri([url], add_options(cfg, resolution)))
         print(f"  {resolution.category.icon} queued  {name or url}  →  {resolution.path}")
-    return 1 if failures else 0
+    return (1 if failures else 0), gids
 
 
 def _rows(client) -> list[dict]:

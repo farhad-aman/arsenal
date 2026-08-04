@@ -66,7 +66,8 @@ def test_add_options_carry_dir_and_limits(cfg):
 
 def test_cmd_add_queues_each_url(cfg, capsys):
     client = FakeClient()
-    assert cli.cmd_add(["https://e.com/a.iso", "https://e.com/b.mkv"], cfg, client, None) == 0
+    rc, gids = cli.cmd_add(["https://e.com/a.iso", "https://e.com/b.mkv"], cfg, client, None)
+    assert rc == 0
     assert len(client.added) == 2
     out = capsys.readouterr().out
     assert "a.iso" in out and "b.mkv" in out
@@ -97,8 +98,9 @@ def test_cmd_add_rejects_unwritable_destination(cfg, tmp_path, capsys):
     locked.mkdir()
     locked.chmod(0o500)
     try:
-        rc = cli.cmd_add(["https://e.com/a.iso"], cfg, client, locked / "sub")
+        rc, gids = cli.cmd_add(["https://e.com/a.iso"], cfg, client, locked / "sub")
         assert rc == 1
+        assert gids == []
         assert "cannot write" in capsys.readouterr().err
         assert not client.added
     finally:
@@ -106,7 +108,9 @@ def test_cmd_add_rejects_unwritable_destination(cfg, tmp_path, capsys):
 
 
 def test_cmd_add_with_no_urls_is_an_error(cfg, capsys):
-    assert cli.cmd_add([], cfg, FakeClient(), None) == 1
+    rc, gids = cli.cmd_add([], cfg, FakeClient(), None)
+    assert rc == 1
+    assert gids == []
     assert capsys.readouterr().err
 
 
@@ -130,7 +134,9 @@ def test_looks_like_url(value, ok):
 
 def test_cmd_add_refuses_a_mistyped_subcommand_instead_of_downloading_it(cfg, capsys):
     client = FakeClient()
-    assert cli.cmd_add(["limit off"], cfg, client, None) == 1
+    rc, gids = cli.cmd_add(["limit off"], cfg, client, None)
+    assert rc == 1
+    assert gids == []
     err = capsys.readouterr().err
     assert "not a URL" in err
     assert "--help" in err
@@ -139,8 +145,32 @@ def test_cmd_add_refuses_a_mistyped_subcommand_instead_of_downloading_it(cfg, ca
 
 def test_cmd_add_rejects_the_whole_batch_if_any_entry_is_not_a_url(cfg, capsys):
     client = FakeClient()
-    assert cli.cmd_add(["https://e.com/a.iso", "oops"], cfg, client, None) == 1
+    rc, gids = cli.cmd_add(["https://e.com/a.iso", "oops"], cfg, client, None)
+    assert rc == 1
+    assert gids == []
     assert not client.added
+
+
+def test_cmd_add_returns_gids_in_argument_order(cfg):
+    client = FakeClient()
+    rc, gids = cli.cmd_add(
+        ["https://e.com/a.iso", "https://e.com/b.mkv", "https://e.com/c.zip"], cfg, client, None
+    )
+    assert rc == 0
+    assert gids == ["gid1", "gid2", "gid3"]
+
+
+def test_cmd_add_skips_gids_for_unwritable_destinations(cfg, tmp_path, capsys):
+    client = FakeClient()
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        rc, gids = cli.cmd_add(["https://e.com/a.iso"], cfg, client, locked / "sub")
+        assert (rc, gids) == (1, [])
+    finally:
+        locked.chmod(0o700)
+    capsys.readouterr()
 
 
 def test_cmd_ls_lists_active_and_waiting(cfg, capsys):

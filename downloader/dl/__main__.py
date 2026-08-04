@@ -94,7 +94,8 @@ def _run(args: list[str]) -> int:
 
     if urls:
         daemon.bump_generation(config.STATE_DIR)
-        return cli.cmd_add(urls, cfg, client, explicit_dir)
+        rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir)
+        return rc
 
     if not sys.stdout.isatty():
         print("dl: not a terminal — try `dl ls`", file=sys.stderr)
