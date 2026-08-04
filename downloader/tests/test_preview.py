@@ -1,7 +1,17 @@
 import pytest
 
+from dl import history
 from dl.rpc import Aria2Unreachable
+from dl.tui.modals import DuplicateModal
 from dl.tui.preview import PreviewApp, Request, summarise
+
+
+def seed_history(monkeypatch, tmp_path, record):
+    """Point the app's history log inside tmp_path before writing to it."""
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    history.append(record, tmp_path / "history.jsonl")
 
 
 @pytest.fixture
@@ -300,7 +310,7 @@ async def test_picking_shows_one_screen_per_pending_file(cfg, tmp_path):
     client = PreviewClient(active=())
     seen = []
 
-    def queue(chosen):
+    def queue(chosen, decisions=None):
         seen.append(list(chosen))
         return []
 
@@ -322,7 +332,7 @@ async def test_picking_shows_one_screen_per_pending_file(cfg, tmp_path):
 
 async def test_picking_does_not_exit_the_app_before_queuing(cfg, tmp_path):
     client = PreviewClient(active=())
-    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: [])
+    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c, d=None: [])
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.refresh_data()
@@ -336,7 +346,7 @@ async def test_escape_records_none_and_moves_on(cfg, tmp_path):
     client = PreviewClient(active=())
     seen = []
     app = PreviewApp(
-        cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: seen.append(list(c)) or []
+        cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c, d=None: seen.append(list(c)) or []
     )
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -347,7 +357,7 @@ async def test_escape_records_none_and_moves_on(cfg, tmp_path):
 
 async def test_queue_result_becomes_the_watch_set(cfg, tmp_path):
     client = PreviewClient(active=("g1",))
-    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: ["g1"])
+    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c, d=None: ["g1"])
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")
@@ -359,12 +369,147 @@ async def test_queue_result_becomes_the_watch_set(cfg, tmp_path):
 
 async def test_app_exits_when_queuing_produced_nothing(cfg, tmp_path):
     client = PreviewClient(active=())
-    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: [])
+    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c, d=None: [])
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
     assert app.is_running is False
+
+
+def dup_request(tmp_path, cfg, name="movie.mkv"):
+    return Request(
+        url=f"https://e.com/{name}",
+        filename=name,
+        default_dir=tmp_path / "default",
+        category=cfg.categories["video"],
+    )
+
+
+async def test_a_clean_target_never_opens_the_duplicate_prompt(cfg, tmp_path):
+    seen = []
+    app = PreviewApp(
+        cfg,
+        PreviewClient(active=()),
+        pending=[dup_request(tmp_path, cfg)],
+        queue=lambda c, d=None: seen.append(list(d or [])) or [],
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+    assert seen == [[None]]
+
+
+async def test_an_existing_file_prompts_and_skip_is_recorded(cfg, tmp_path):
+    from dl.duplicates import SKIP
+
+    target = tmp_path / "default" / "movie.mkv"
+    target.parent.mkdir(parents=True)
+    target.write_text("already here")
+
+    seen = []
+    app = PreviewApp(
+        cfg,
+        PreviewClient(active=()),
+        pending=[dup_request(tmp_path, cfg)],
+        queue=lambda c, d=None: seen.append(list(d or [])) or [],
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, DuplicateModal)
+        await pilot.press("s")
+        await pilot.pause()
+    assert seen == [[SKIP]]
+
+
+async def test_overwrite_is_recorded_for_an_existing_file(cfg, tmp_path):
+    from dl.duplicates import OVERWRITE
+
+    target = tmp_path / "default" / "movie.mkv"
+    target.parent.mkdir(parents=True)
+    target.write_text("old")
+
+    seen = []
+    app = PreviewApp(
+        cfg,
+        PreviewClient(active=()),
+        pending=[dup_request(tmp_path, cfg)],
+        queue=lambda c, d=None: seen.append(list(d or [])) or [],
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("o")
+        await pilot.pause()
+    assert seen == [[OVERWRITE]]
+
+
+async def test_a_url_only_collision_offers_no_overwrite(cfg, tmp_path, monkeypatch):
+    """Nothing is at the new path, so there is nothing to overwrite."""
+    from dl.duplicates import DOWNLOAD, OVERWRITE
+
+    elsewhere = tmp_path / "old" / "movie.mkv"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text("done")
+    seed_history(
+        monkeypatch,
+        tmp_path,
+        {
+            "ts": 1,
+            "name": "movie.mkv",
+            "path": str(elsewhere),
+            "url": "https://e.com/movie.mkv",
+            "status": "ok",
+            "bytes": 4,
+        },
+    )
+
+    seen = []
+    app = PreviewApp(
+        cfg,
+        PreviewClient(active=()),
+        pending=[dup_request(tmp_path, cfg)],
+        queue=lambda c, d=None: seen.append(list(d or [])) or [],
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, DuplicateModal)
+        assert OVERWRITE not in modal.collision.choices
+        await pilot.press("o")
+        await pilot.pause()
+        assert isinstance(app.screen, DuplicateModal), "o must not act on an absent choice"
+        await pilot.press("d")
+        await pilot.pause()
+    assert seen == [[DOWNLOAD]]
+
+
+async def test_escaping_the_duplicate_prompt_cancels_the_batch(cfg, tmp_path):
+    target = tmp_path / "default" / "movie.mkv"
+    target.parent.mkdir(parents=True)
+    target.write_text("here")
+
+    seen = []
+    app = PreviewApp(
+        cfg,
+        PreviewClient(active=()),
+        pending=[dup_request(tmp_path, cfg)],
+        queue=lambda c, d=None: seen.append(1) or [],
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+    assert seen == []
+    assert app.cancelled is True
 
 
 async def test_ctrl_c_in_the_picker_queues_nothing_and_exits(cfg, tmp_path):
@@ -374,7 +519,7 @@ async def test_ctrl_c_in_the_picker_queues_nothing_and_exits(cfg, tmp_path):
         cfg,
         client,
         pending=[request(tmp_path, cfg, "a.mkv"), request(tmp_path, cfg, "b.mkv")],
-        queue=lambda c: seen.append(list(c)) or ["g1"],
+        queue=lambda c, d=None: seen.append(list(c)) or ["g1"],
     )
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -390,7 +535,7 @@ async def test_tab_completes_inside_the_picker(cfg, tmp_path):
     """Priority bindings resolve app-first, so the dashboard's tab binding would
     otherwise swallow the key before the picker ever sees it."""
     client = PreviewClient(active=())
-    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: [])
+    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c, d=None: [])
     async with app.run_test() as pilot:
         await pilot.pause()
         picker = app.screen
@@ -406,7 +551,7 @@ async def test_cancelling_stops_the_remaining_pickers(cfg, tmp_path):
         cfg,
         client,
         pending=[request(tmp_path, cfg, "a.mkv"), request(tmp_path, cfg, "b.mkv")],
-        queue=lambda c: [],
+        queue=lambda c, d=None: [],
     )
     async with app.run_test() as pilot:
         await pilot.pause()

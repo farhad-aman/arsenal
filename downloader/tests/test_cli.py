@@ -44,6 +44,9 @@ class FakeClient:
 
     def remove(self, gid):
         self.removed.append(gid)
+
+    def tell_status(self, gid):
+        return {"gid": gid, "status": "removed" if gid in self.removed else "active"}
         return gid
 
     def change_global_option(self, options):
@@ -85,6 +88,106 @@ def test_cmd_add_without_proxy_sends_nothing_extra(cfg):
     client = FakeClient()
     cli.cmd_add(["https://e.com/a.iso"], cfg, client, None)
     assert all("all-proxy" not in opts for _uris, opts in client.added)
+
+
+def test_add_options_rename_keeps_auto_renaming(cfg):
+    from dl.duplicates import RENAME
+
+    resolution = routing.resolve("https://e.com/a.iso", "a.iso", cfg)
+    options = cli.add_options(cfg, resolution, decision=RENAME)
+    assert options["auto-file-renaming"] == "true"
+    assert options["allow-overwrite"] == "false"
+
+
+def test_add_options_rename_turns_off_resume(cfg):
+    """--continue resumes into the existing file instead of renaming, which
+    destroys the very copy rename exists to preserve."""
+    from dl.duplicates import RENAME
+
+    resolution = routing.resolve("https://e.com/a.iso", "a.iso", cfg)
+    assert cli.add_options(cfg, resolution, decision=RENAME)["continue"] == "false"
+
+
+def test_add_options_leave_resume_alone_for_other_decisions(cfg):
+    from dl.duplicates import OVERWRITE
+
+    resolution = routing.resolve("https://e.com/a.iso", "a.iso", cfg)
+    assert "continue" not in cli.add_options(cfg, resolution, decision=OVERWRITE)
+    assert "continue" not in cli.add_options(cfg, resolution)
+
+
+def test_add_options_overwrite_reuses_the_same_name(cfg):
+    from dl.duplicates import OVERWRITE
+
+    resolution = routing.resolve("https://e.com/a.iso", "a.iso", cfg)
+    options = cli.add_options(cfg, resolution, decision=OVERWRITE)
+    assert options["auto-file-renaming"] == "false"
+    assert options["allow-overwrite"] == "true"
+
+
+def test_add_options_without_a_decision_stay_out_of_the_way(cfg):
+    resolution = routing.resolve("https://e.com/a.iso", "a.iso", cfg)
+    options = cli.add_options(cfg, resolution)
+    assert "auto-file-renaming" not in options
+    assert "allow-overwrite" not in options
+
+
+def test_cmd_add_skips_a_url_the_user_declined(cfg, capsys):
+    from dl.duplicates import SKIP
+
+    client = FakeClient()
+    rc, gids = cli.cmd_add(
+        ["https://e.com/a.iso", "https://e.com/b.mkv"], cfg, client, None, decisions=[SKIP, None]
+    )
+    assert rc == 0
+    assert len(gids) == 1
+    assert len(client.added) == 1
+    assert "skipped" in capsys.readouterr().out
+
+
+def test_cmd_add_skipping_everything_queues_nothing(cfg):
+    from dl.duplicates import SKIP
+
+    client = FakeClient()
+    rc, gids = cli.cmd_add(["https://e.com/a.iso"], cfg, client, None, decisions=[SKIP])
+    assert rc == 0
+    assert gids == []
+    assert client.added == []
+
+
+def test_cmd_add_overwrite_deletes_the_file_it_replaces(cfg, tmp_path):
+    from dl.duplicates import OVERWRITE
+
+    victim = tmp_path / "a.iso"
+    victim.write_text("old")
+    (tmp_path / "a.iso.aria2").write_text("ctl")
+
+    client = FakeClient()
+    cli.cmd_add(
+        ["https://e.com/a.iso"], cfg, client, tmp_path, decisions=[OVERWRITE]
+    )
+    assert not victim.exists()
+    assert not (tmp_path / "a.iso.aria2").exists()
+    assert len(client.added) == 1
+
+
+def test_cmd_add_overwrite_evicts_an_unfinished_duplicate(cfg, tmp_path):
+    from dl.duplicates import OVERWRITE
+
+    victim = tmp_path / "a.iso"
+    victim.write_text("partial")
+
+    client = FakeClient()
+    client.active = [
+        {
+            "gid": "gOld",
+            "status": "active",
+            "files": [{"path": str(victim), "uris": [{"uri": "https://e.com/a.iso"}]}],
+        }
+    ]
+    cli.cmd_add(["https://e.com/a.iso"], cfg, client, tmp_path, decisions=[OVERWRITE])
+    assert client.removed == ["gOld"]
+    assert not victim.exists()
 
 
 def test_cmd_add_queues_each_url(cfg, capsys):

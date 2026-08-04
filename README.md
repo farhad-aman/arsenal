@@ -74,6 +74,9 @@ accepts — then attaches a live preview so you can pause, limit, open, or delet
 them without leaving that shell. Typing a path browses the real directories on
 disk; `Ctrl-C` in the picker cancels before anything is queued.
 
+If the download would collide with a file you already have, `dl` warns first and
+offers to skip, rename, or overwrite — instead of silently writing a `.1` copy.
+
 ```
 Usage: dl [options]
 

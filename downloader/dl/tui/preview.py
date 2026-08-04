@@ -2,11 +2,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .. import history
+from .. import duplicates, history, routing
 from ..config import Category
 from ..format import human_bytes, human_duration, human_speed
+from ..rpc import Aria2Error, Aria2Unreachable
 from ..theme import select
 from .app import DlApp
+from .modals import DuplicateModal
 from .picker import CancelAll, PickerScreen
 
 RUNNING = ("active", "waiting")
@@ -69,8 +71,9 @@ class PreviewApp(DlApp):
 
     splash_when_empty = False
 
-    def __init__(self, cfg, client, gids=(), pending=(), queue=None):
+    def __init__(self, cfg, client, gids=(), pending=(), queue=None, pick_paths=True):
         super().__init__(cfg, client)
+        self.pick_paths = pick_paths
         self.watch = set(gids)
         self.results: list[dict] = []
         self.hint_text = PREVIEW_HINT
@@ -79,12 +82,18 @@ class PreviewApp(DlApp):
         self.picking = bool(self.pending)
         self.cancelled = False
         self.chosen: list[Path | None] = []
+        self.decisions: list[str | None] = []
 
     def on_mount(self) -> None:
         super().on_mount()
         self.hint.update(PREVIEW_HINT)
-        if self.pending:
+        if not self.pending:
+            return
+        if self.pick_paths:
             self._ask(0)
+        else:
+            self.chosen = [None] * len(self.pending)
+            self._ask_duplicate(0)
 
     def _ask(self, index: int) -> None:
         if index >= len(self.pending):
@@ -119,8 +128,53 @@ class PreviewApp(DlApp):
         self.exit()
 
     def _finish_picking(self) -> None:
+        self._ask_duplicate(0)
+
+    def _in_flight(self) -> list[dict]:
+        try:
+            return list(self.client.tell_active()) + list(self.client.tell_waiting())
+        except (Aria2Error, Aria2Unreachable):
+            return []
+
+    def _target_for(self, index: int) -> Path | None:
+        item = self.pending[index]
+        name = routing.filename_from_url(item.url)
+        if not name:
+            return None
+        directory = self.chosen[index] if index < len(self.chosen) else None
+        return Path(directory or item.default_dir) / name
+
+    def _ask_duplicate(self, index: int) -> None:
+        """Runs after the picker, because only then is the destination known."""
+        if index >= len(self.pending):
+            self._start_queue()
+            return
+        item = self.pending[index]
+        collision = duplicates.detect(
+            item.url,
+            self._target_for(index),
+            history.tail(self.history_log, 200),
+            self._in_flight(),
+        )
+        if collision is None:
+            self.decisions.append(None)
+            self._ask_duplicate(index + 1)
+            return
+
+        def decided(choice: str | None) -> None:
+            if choice is None:
+                self._cancel_picking()
+                return
+            self.decisions.append(choice)
+            self._ask_duplicate(index + 1)
+
+        self.push_screen(
+            DuplicateModal(item.filename, collision, human_bytes(collision.size)), decided
+        )
+
+    def _start_queue(self) -> None:
         self.picking = False
-        gids = self.queue(self.chosen) if self.queue else []
+        gids = self.queue(self.chosen, self.decisions) if self.queue else []
         self.watch = set(gids)
         if not self.watch:
             self.exit()
@@ -170,9 +224,11 @@ class PreviewApp(DlApp):
         return sorted(collected, key=lambda r: r["name"])
 
 
-def run_preview(cfg, client, gids=(), pending=(), queue=None) -> tuple[list[str], bool]:
+def run_preview(
+    cfg, client, gids=(), pending=(), queue=None, pick_paths=True
+) -> tuple[list[str], bool]:
     """Return the lines to print and whether the batch was cancelled."""
-    app = PreviewApp(cfg, client, gids, pending, queue)
+    app = PreviewApp(cfg, client, gids, pending, queue, pick_paths)
     app.run()
     icons = select(cfg).icons
     if app.cancelled:

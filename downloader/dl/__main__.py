@@ -105,7 +105,7 @@ def _run(args: list[str]) -> int:
             rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy)
             return rc
 
-        if explicit_dir is not None or not all(cli.looks_like_url(u) for u in urls):
+        if not all(cli.looks_like_url(u) for u in urls):
             rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy)
             if gids:
                 lines, _cancelled = run_preview(cfg, client, gids=gids)
@@ -117,16 +117,21 @@ def _run(args: list[str]) -> int:
         for url in urls:
             name = routing.filename_from_url(url)
             resolved = routing.resolve(url, name, cfg)
-            pending.append(Request(url, name or url, resolved.path, resolved.category))
+            where = explicit_dir if explicit_dir is not None else resolved.path
+            pending.append(Request(url, name or url, where, resolved.category))
 
         outcome = {"rc": 0}
 
-        def queue(chosen):
-            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, chosen or None, proxy)
+        def queue(chosen, decisions=None):
+            rc, gids = cli.cmd_add(
+                urls, cfg, client, explicit_dir, chosen or None, proxy, decisions or None
+            )
             outcome["rc"] = rc
             return gids
 
-        lines, cancelled = run_preview(cfg, client, pending=pending, queue=queue)
+        lines, cancelled = run_preview(
+            cfg, client, pending=pending, queue=queue, pick_paths=explicit_dir is None
+        )
         for line in lines:
             print(line)
         return 130 if cancelled else outcome["rc"]

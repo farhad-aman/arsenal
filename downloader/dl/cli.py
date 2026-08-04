@@ -1,20 +1,25 @@
 import sys
+import time
 from pathlib import Path
 
-from . import routing
+from . import duplicates, routing
 from .config import Config, parse_rate
 from .destinations import ensure_writable
 from .format import human_bytes, human_speed
 from .routing import Resolution
+from .rpc import Aria2Error, Aria2Unreachable
 
 SCHEMES = ("http://", "https://", "ftp://", "ftps://", "sftp://", "magnet:")
+_SETTLED = ("removed", "error", "complete")
 
 
 def looks_like_url(value: str) -> bool:
     return value.startswith(SCHEMES) or value.endswith(".torrent")
 
 
-def add_options(cfg: Config, resolution: Resolution, proxy: bool = False) -> dict:
+def add_options(
+    cfg: Config, resolution: Resolution, proxy: bool = False, decision: str | None = None
+) -> dict:
     options = {
         "dir": str(resolution.path),
         "max-connection-per-server": str(cfg.limits.connections),
@@ -24,7 +29,51 @@ def add_options(cfg: Config, resolution: Resolution, proxy: bool = False) -> dic
     }
     if proxy:
         options["all-proxy"] = cfg.proxy
+    if decision == duplicates.RENAME:
+        options["auto-file-renaming"] = "true"
+        options["allow-overwrite"] = "false"
+        # --continue makes aria2 resume *into* the existing file instead of
+        # renaming, which silently destroys the copy rename is meant to keep.
+        options["continue"] = "false"
+    elif decision == duplicates.OVERWRITE:
+        options["auto-file-renaming"] = "false"
+        options["allow-overwrite"] = "true"
     return options
+
+
+def _unlink(path: Path) -> None:
+    for target in (path, path.with_name(path.name + ".aria2")):
+        try:
+            target.unlink()
+        except OSError:
+            pass
+
+
+def evict(client, target: Path, timeout: float = 5.0) -> str:
+    """Clear the way for an overwrite: drop any download still writing to
+    `target` from the queue, then delete what it left behind.
+
+    aria2 rewrites the control file while winding a download down, so the
+    unlink has to wait for the removal to settle or the .aria2 comes back.
+    """
+    in_flight = list(client.tell_active()) + list(client.tell_waiting())
+    victim = next((row for row in in_flight if duplicates.path_of(row) == target), None)
+    gid = victim.get("gid", "") if victim else ""
+    if gid:
+        try:
+            client.remove(gid)
+        except (Aria2Error, Aria2Unreachable):
+            pass
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if client.tell_status(gid).get("status", "") in _SETTLED:
+                    break
+            except (Aria2Error, Aria2Unreachable):
+                break
+            time.sleep(0.05)
+    _unlink(target)
+    return gid
 
 
 def cmd_add(
@@ -34,6 +83,7 @@ def cmd_add(
     explicit_dir: Path | None,
     chosen: list[Path | None] | None = None,
     proxy: bool = False,
+    decisions: list[str | None] | None = None,
 ) -> tuple[int, list[str]]:
     if not urls:
         print("dl: no URLs given", file=sys.stderr)
@@ -52,13 +102,23 @@ def cmd_add(
         pick = chosen[index] if chosen and index < len(chosen) else None
         target = pick or explicit_dir or routed.path
         resolution = Resolution(Path(target), routed.category)
+        decision = decisions[index] if decisions and index < len(decisions) else None
+        if decision == duplicates.SKIP:
+            print(f"  ⏭  skipped  {name or url}  — already there")
+            continue
         if not ensure_writable(resolution.path):
             print(f"dl: cannot write to {resolution.path}", file=sys.stderr)
             failures += 1
             continue
-        gids.append(client.add_uri([url], add_options(cfg, resolution, proxy)))
+        if decision == duplicates.OVERWRITE:
+            evict(client, resolution.path / name if name else resolution.path)
+        gids.append(client.add_uri([url], add_options(cfg, resolution, proxy, decision)))
         via = "  🌐 via proxy" if proxy else ""
-        print(f"  {resolution.category.icon} queued  {name or url}  →  {resolution.path}{via}")
+        replaced = "  ♻️ overwriting" if decision == duplicates.OVERWRITE else ""
+        print(
+            f"  {resolution.category.icon} queued  {name or url}"
+            f"  →  {resolution.path}{via}{replaced}"
+        )
     return (1 if failures else 0), gids
 
 

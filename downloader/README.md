@@ -75,6 +75,35 @@ works.
 
 Magnet links and `.torrent` URLs work anywhere a URL does.
 
+## Duplicates
+
+Once the destination is settled, `dl` checks whether the download would collide
+with something and asks before writing anything. What it offers depends on what
+actually matches:
+
+| Match | What it means | Options |
+|---|---|---|
+| URL **and** path | The same file, headed for the same place | skip · rename · overwrite |
+| URL only | Same file, different folder — nothing is at risk | skip · download anyway |
+| Path only | A **different** URL produced the file sitting there | skip · rename · overwrite ⚠ |
+
+Overwriting a path-only match carries a blunt warning, because the file being
+destroyed was never produced by this download.
+
+If what you are duplicating is still downloading, overwrite drops that download
+from the queue first — the old entry disappears, its partial file and `.aria2`
+go with it, and the new one starts clean.
+
+Rename is the old `.1` behaviour, now chosen rather than silent. It turns
+`--continue` off for that download: left on, aria2 resumes *into* the existing
+file instead of renaming, destroying the copy rename exists to preserve.
+
+`Esc` cancels the whole batch. Nothing is queued and nothing on disk is touched.
+
+Non-interactive runs — `--no-preview`, piped output, cron — cannot ask, so they
+behave exactly as before: aria2 auto-renames to `file.1.mkv` and nothing is ever
+overwritten without someone saying so.
+
 ## Proxy
 
 `dl -p <url>` sends that download through the sing-box proxy. It is per-download:

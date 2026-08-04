@@ -31,12 +31,15 @@ Screen { layout: vertical; }
 StatusBar { height: 1; dock: top; padding: 0 1; }
 #body { height: 1fr; padding: 0 1; }
 #hint { dock: bottom; height: 1; padding: 0 1; }
-AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen {
+AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen, DuplicateModal {
     align: center middle;
 }
-#add-box, #limit-box, #confirm-box, #delete-box, #picker-box {
+#add-box, #limit-box, #confirm-box, #delete-box, #picker-box, #duplicate-box {
     width: 76; padding: 1 2; border: round $accent; background: $surface;
 }
+#duplicate-box Button { width: 100%; margin-top: 1; }
+#duplicate-head { text-style: bold; }
+#duplicate-detail { height: auto; margin-top: 1; }
 #picker-list { height: auto; }
 #picker-error { height: auto; }
 #picker-head { text-style: bold; }

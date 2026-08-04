@@ -43,8 +43,8 @@ def _wire(monkeypatch, tmp_path, isatty, calls):
     monkeypatch.setattr(cli, "cmd_add", lambda *a, **k: (0, ["gidX"]))
     monkeypatch.setattr("sys.stdout.isatty", lambda: isatty)
 
-    def fake_preview(cfg, client, gids=(), pending=(), queue=None):
-        calls.append({"gids": gids, "pending": pending, "queue": queue})
+    def fake_preview(cfg, client, gids=(), pending=(), queue=None, pick_paths=True):
+        calls.append({"gids": gids, "pending": pending, "queue": queue, "pick_paths": pick_paths})
         if queue is not None:
             queue([None] * len(pending))
         return ["  done"], False
@@ -134,7 +134,7 @@ def test_proxy_flag_reaches_cmd_add(monkeypatch, tmp_path):
     calls = []
     _wire(monkeypatch, tmp_path, True, calls)
 
-    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False):
+    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False, decisions=None):
         seen["urls"] = urls
         seen["proxy"] = proxy
         return 0, ["gidX"]
@@ -148,7 +148,7 @@ def test_proxy_flag_reaches_cmd_add(monkeypatch, tmp_path):
 def _record_add(monkeypatch, seen):
     from dl import cli
 
-    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False):
+    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False, decisions=None):
         seen["urls"] = urls
         seen["proxy"] = proxy
         return 0, ["gidX"]
@@ -184,8 +184,8 @@ def test_a_cancelled_picker_returns_130(monkeypatch, tmp_path):
     calls = []
     _wire(monkeypatch, tmp_path, True, calls)
 
-    def cancelled_preview(cfg, client, gids=(), pending=(), queue=None):
-        calls.append({"gids": gids, "pending": pending, "queue": queue})
+    def cancelled_preview(cfg, client, gids=(), pending=(), queue=None, pick_paths=True):
+        calls.append({"gids": gids, "pending": pending, "queue": queue, "pick_paths": pick_paths})
         return ["  cancelled — nothing queued"], True
 
     monkeypatch.setattr(entry, "run_preview", cancelled_preview)
@@ -207,11 +207,22 @@ def test_a_cancelled_picker_never_queues(monkeypatch, tmp_path):
 
 
 def test_explicit_dir_skips_the_picker(monkeypatch, tmp_path):
+    """-d names the folder, so nothing is asked about it — but the download
+    still goes through the duplicate check."""
     calls = []
     _wire(monkeypatch, tmp_path, True, calls)
     entry.main(["-d", str(tmp_path / "x"), "https://e.com/a.iso"])
     assert calls
-    assert not calls[0].get("pending")
+    assert calls[0]["pick_paths"] is False
+    assert calls[0]["pending"], "still needs a request to run the duplicate check on"
+    assert calls[0]["pending"][0].default_dir == tmp_path / "x"
+
+
+def test_a_plain_url_still_opens_the_picker(monkeypatch, tmp_path):
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+    entry.main(["https://e.com/a.iso"])
+    assert calls[0]["pick_paths"] is True
 
 
 def test_no_preview_skips_the_picker(monkeypatch, tmp_path):
