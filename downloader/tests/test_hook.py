@@ -73,15 +73,20 @@ def test_build_record_avg_bps_is_zero_when_instant(cfg):
 
 
 def test_relocate_moves_file_when_category_changes(tmp_path, cfg):
-    src_dir = tmp_path / "wrong"
-    src_dir.mkdir()
-    src = src_dir / "movie.mkv"
-    src.write_text("data")
-    target_dir = tmp_path / "right"
+    """The URL says .iso so aria2 landed it in ISO/, but the real filename is
+    .mkv — the only case relocation exists for."""
     cats = dict(cfg.categories)
-    cats["video"] = config.Category("video", target_dir, ("mkv",), "🎬", "#fff")
-    moved = hook.relocate(src, config.Config(cfg.general, cfg.limits, cats, {}), "https://e.com/movie.mkv")
-    assert moved == target_dir / "movie.mkv"
+    cats["video"] = config.Category("video", tmp_path / "Movies", ("mkv",), "🎬", "#fff")
+    cats["iso"] = config.Category("iso", tmp_path / "ISO", ("iso",), "💿", "#fff")
+    routed = config.Config(cfg.general, cfg.limits, cats, {})
+
+    landed = tmp_path / "ISO"
+    landed.mkdir()
+    src = landed / "movie.mkv"
+    src.write_text("data")
+
+    moved = hook.relocate(src, routed, "https://e.com/download.iso")
+    assert moved == tmp_path / "Movies" / "movie.mkv"
     assert moved.read_text() == "data"
     assert not src.exists()
 
@@ -119,6 +124,22 @@ def test_relocate_returns_original_when_file_is_missing(tmp_path, cfg):
     assert hook.relocate(ghost, cfg, "https://e.com/ghost.mkv") == ghost
 
 
+def test_relocate_leaves_an_explicitly_chosen_directory_alone(tmp_path, cfg):
+    picked = tmp_path / "my-custom-folder"
+    picked.mkdir()
+    src = picked / "movie.mkv"
+    src.write_text("data")
+    cats = dict(cfg.categories)
+    cats["video"] = config.Category("video", tmp_path / "Movies", ("mkv",), "🎬", "#fff")
+    routed = config.Config(cfg.general, cfg.limits, cats, {})
+
+    final = hook.relocate(src, routed, "https://e.com/movie.mkv")
+
+    assert final == src
+    assert src.exists()
+    assert not (tmp_path / "Movies" / "movie.mkv").exists()
+
+
 def test_drop_control_file_removes_the_aria2_sidecar(tmp_path):
     target = tmp_path / "movie.mkv"
     target.write_text("data")
@@ -134,16 +155,17 @@ def test_drop_control_file_is_false_when_absent(tmp_path):
 
 
 def test_main_cleans_control_files_at_both_old_and_new_locations(tmp_path, cfg, monkeypatch):
-    src_dir = tmp_path / "incoming"
+    target_dir = tmp_path / "Movies"
+    cats = dict(cfg.categories)
+    cats["video"] = config.Category("video", target_dir, ("mkv",), "🎬", "#fff")
+    cats["iso"] = config.Category("iso", tmp_path / "ISO", ("iso",), "💿", "#fff")
+    routed = config.Config(cfg.general, cfg.limits, cats, {})
+
+    src_dir = tmp_path / "ISO"
     src_dir.mkdir()
     downloaded = src_dir / "movie.mkv"
     downloaded.write_text("data")
     (src_dir / "movie.mkv.aria2").write_text("ctl")
-
-    target_dir = tmp_path / "Movies"
-    cats = dict(cfg.categories)
-    cats["video"] = config.Category("video", target_dir, ("mkv",), "🎬", "#fff")
-    routed = config.Config(cfg.general, cfg.limits, cats, {})
 
     monkeypatch.setattr(hook, "STATE_DIR", tmp_path)
     monkeypatch.setattr(hook.config, "load", lambda *a, **k: routed)
@@ -152,7 +174,7 @@ def test_main_cleans_control_files_at_both_old_and_new_locations(tmp_path, cfg, 
 
     client = FakeClient()
     client.tell_status = lambda gid: status(
-        files=[{"path": str(downloaded), "uris": [{"uri": "https://e.com/movie.mkv"}]}]
+        files=[{"path": str(downloaded), "uris": [{"uri": "https://e.com/download.iso"}]}]
     )
     monkeypatch.setattr(hook.daemon, "ensure_running", lambda *a, **k: client)
 

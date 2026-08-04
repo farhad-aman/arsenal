@@ -55,7 +55,15 @@ def drop_control_file(path: Path) -> bool:
 
 
 def relocate(path: Path, cfg: Config, url: str) -> Path:
+    """Correct the destination when the real filename routes elsewhere.
+
+    A file sitting outside the directory URL-based routing chose was pinned by
+    -d or the picker, so it is left alone.
+    """
     if not path.exists():
+        return path
+    routed = routing.resolve(url, routing.filename_from_url(url), cfg).path
+    if path.parent != routed:
         return path
     target_dir = routing.resolve(url, path.name, cfg).path
     if target_dir == path.parent:
