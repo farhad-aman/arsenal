@@ -256,12 +256,21 @@ class DlApp(App):
         self.push_screen(AddUrlModal(), queue)
 
     def _youtube_jobs(self) -> list[dict]:
-        """Live yt-dlp downloads, which the aria2 daemon knows nothing about."""
-        return [
-            job
-            for job in ytjob.list_jobs(STATE_DIR / "yt")
-            if job.get("status") in ("queued", "active", "burning", "paused")
-        ]
+        """yt-dlp downloads, which the aria2 daemon knows nothing about.
+
+        Failures stay on the list until they are deleted: a job that vanished
+        on error would look exactly like one that never started.
+        """
+        return self._filter_jobs(
+            [
+                job
+                for job in ytjob.list_jobs(STATE_DIR / "yt")
+                if job.get("status") in ("queued", "active", "burning", "paused", "error")
+            ]
+        )
+
+    def _filter_jobs(self, jobs: list[dict]) -> list[dict]:
+        return jobs
 
     def _in_flight(self) -> list[dict]:
         try:
@@ -370,9 +379,30 @@ class DlApp(App):
             await asyncio.sleep(0.05)
         self._unlink(path)
 
+    def _delete_youtube(self, row) -> None:
+        job_file = STATE_DIR / "yt" / f"{row.gid}.json"
+        has_file = bool(row.path) and row.path.is_file()
+
+        def chosen(choice: str | None) -> None:
+            if choice is None:
+                return
+            for job in ytjob.list_jobs(STATE_DIR / "yt"):
+                if job.get("id") == row.gid and ytjob.running(job.get("pid", 0)):
+                    ytjob.stop(job)
+            job_file.unlink(missing_ok=True)
+            job_file.with_suffix(".log").unlink(missing_ok=True)
+            if choice == "disk" and has_file:
+                self._unlink(row.path)
+            self.notify(f"removed {row.name or row.gid}")
+
+        self.push_screen(DeleteModal(row.name or row.gid, has_file), chosen)
+
     def _delete_active(self) -> None:
         row = self._selected()
         if row is None:
+            return
+        if row.gid.startswith("yt-"):
+            self._delete_youtube(row)
             return
         has_file = bool(row.path) and row.path.exists()
 

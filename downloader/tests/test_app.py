@@ -483,6 +483,58 @@ async def test_the_splash_still_shows_when_nothing_at_all_is_running(cfg, tmp_pa
         assert "d o w n l o a d e r" in app.table.text
 
 
+async def test_a_failed_youtube_job_stays_visible(cfg, tmp_path, monkeypatch):
+    """A job that vanished on error looks exactly like one that never started."""
+    from dl import ytjob
+    from dl.tui import app as app_module
+    from dl.youtube import DEFAULTS
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    job = ytjob.new_job("https://youtu.be/abc", tmp_path / "out", DEFAULTS)
+    job["status"] = "error"
+    job["error"] = "Connection refused"
+    ytjob.save(tmp_path / "yt", job)
+
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        rows = app.table.rows
+        assert [r.gid for r in rows] == [job["id"]]
+        assert rows[0].status == "error"
+        assert rows[0].error == "Connection refused"
+
+
+async def test_deleting_a_failed_youtube_job_clears_its_record(cfg, tmp_path, monkeypatch):
+    from dl import ytjob
+    from dl.tui import app as app_module
+    from dl.youtube import DEFAULTS
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    job = ytjob.new_job("https://youtu.be/abc", tmp_path / "out", DEFAULTS)
+    job["status"] = "error"
+    job["error"] = "boom"
+    saved = ytjob.save(tmp_path / "yt", job)
+
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+        assert not saved.exists()
+        await app.refresh_data()
+        assert app.table.rows == []
+
+
 async def test_a_finished_youtube_job_leaves_the_list(cfg, tmp_path, monkeypatch):
     from dl import ytjob
     from dl.tui import app as app_module

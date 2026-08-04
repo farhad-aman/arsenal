@@ -190,6 +190,11 @@ class PreviewApp(DlApp):
     def _filter_items(self, items: list[dict]) -> list[dict]:
         return [item for item in items if item.get("gid") in self.watch]
 
+    def _filter_jobs(self, jobs: list[dict]) -> list[dict]:
+        """A preview is scoped to what it queued — someone else's YouTube
+        download has no business appearing in it."""
+        return [job for job in jobs if job.get("id") in self.watch]
+
     def _after_refresh(self, items: list[dict]) -> None:
         if self.picking or items:
             return

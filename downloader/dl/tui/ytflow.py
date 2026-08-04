@@ -3,11 +3,14 @@ import sys
 from pathlib import Path
 
 from textual.app import App
+from textual.widgets import Static
 
 from .. import history, routing, ytjob
 from ..config import STATE_DIR, Config
+from ..format import human_bytes
 from ..theme import select
 from .picker import CancelAll, PickerScreen
+from .table import DownloadTable, row_from_job
 from .ytoptions import YouTubeOptionsScreen
 
 JOB_DIR = "yt"
@@ -106,6 +109,69 @@ class YouTubeSetupApp(App):
         )
 
 
+SETTLED = ("complete", "error", "cancelled")
+WATCH_HINT = "^C detach — the download keeps going    d delete in `dl`"
+
+
+class YouTubeWatchApp(App):
+    """Live view of the jobs just queued, scoped to them alone.
+
+    Exists so a failure is seen in the shell that started it rather than
+    discovered later, or never.
+    """
+
+    CSS = """
+    Screen { layout: vertical; }
+    #yt-watch { height: 1fr; padding: 0 1; }
+    #yt-watch-hint { dock: bottom; height: 1; padding: 0 1; }
+    """
+
+    BINDINGS = [("q", "quit", "quit")]
+
+    def __init__(self, cfg: Config, ids: list[str]):
+        super().__init__()
+        self.cfg = cfg
+        self.ids = set(ids)
+        self.theme_data = select(cfg)
+        self.table = DownloadTable(self.theme_data, id="yt-watch")
+        self.finished: list[dict] = []
+
+    def compose(self):
+        yield self.table
+        yield Static(WATCH_HINT, id="yt-watch-hint")
+
+    def on_mount(self) -> None:
+        self.set_interval(0.5, self.poll)
+        self.set_interval(0.1, self.table.refresh_view)
+        self.call_after_refresh(self.poll)
+
+    def poll(self) -> None:
+        mine = [j for j in ytjob.list_jobs(jobs_dir()) if j.get("id") in self.ids]
+        self.table.set_rows([row_from_job(job, self.cfg) for job in mine])
+        if mine and all(job.get("status") in SETTLED for job in mine):
+            self.finished = mine
+            self.exit()
+
+
+def watch(cfg: Config, jobs: list[dict]) -> list[str]:
+    app = YouTubeWatchApp(cfg, [job["id"] for job in jobs])
+    app.run()
+    return summarise(app.finished or jobs)
+
+
+def summarise(jobs: list[dict]) -> list[str]:
+    lines = []
+    for job in jobs:
+        name = Path(job.get("file") or "").name or job.get("url", "")
+        if job.get("status") == "complete":
+            lines.append(f"  ✅ {name}   {human_bytes(int(job.get('done', 0) or 0))}")
+        elif job.get("status") == "error":
+            lines.append(f"  ❌ {name}   {job.get('error', 'failed')}")
+        else:
+            lines.append(f"  ⏳ {name}   still downloading — `dl` to watch")
+    return lines
+
+
 def _label(url: str) -> str:
     tail = url.rstrip("/").rsplit("/", 1)[-1]
     return tail.split("?v=")[-1][:60] or url
@@ -116,7 +182,6 @@ def run_youtube(cfg: Config, urls: list[str], proxy: bool = False) -> tuple[list
     app.run()
     if app.cancelled:
         return ["  ✖ cancelled — nothing queued"], True
-    lines = [f"  ▶ queued  {job['url']}  →  {job['dir']}" for job in app.queued]
-    if lines:
-        lines.append("  run `dl` to watch them")
-    return lines, False
+    if not app.queued:
+        return [], False
+    return watch(cfg, app.queued), False

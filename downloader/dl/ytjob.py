@@ -2,6 +2,7 @@ import json
 import os
 import secrets
 import shutil
+import signal
 import subprocess
 import time
 from dataclasses import asdict
@@ -149,6 +150,18 @@ def subtitle_for(directory: Path, lang: str) -> Path | None:
 
 def wants_burn_in(job: dict) -> bool:
     return burns_in(choices_of(job))
+
+
+def stop(job: dict) -> None:
+    """Cancel a running job. The supervisor watches for this status and takes
+    yt-dlp down with it, so the process group dies with the record."""
+    pid = job.get("pid", 0)
+    if not running(pid):
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
 
 
 def running(pid: int) -> bool:

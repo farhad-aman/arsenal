@@ -18,6 +18,18 @@ def pytest_pyfunc_call(pyfuncitem):
     return True
 
 
+@pytest.fixture(autouse=True)
+def isolate_state(tmp_path, monkeypatch):
+    """Point the state directory at tmp_path for every test.
+
+    The dashboard reads yt-dlp job files straight off disk, so without this a
+    test run sees the real ~/.local/state/dl and whatever is queued there.
+    """
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path / "state", raising=False)
+
+
 @pytest.fixture
 def sandbox_cfg(tmp_path):
     """Defaults with every destination redirected under tmp_path.
