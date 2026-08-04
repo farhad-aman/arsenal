@@ -155,7 +155,7 @@ class PickerScreen(ModalScreen[Path | CancelAll | None]):
         if not self.choices:
             return
         field = self.query_one("#picker-input", Input)
-        field.value = str(self.choices[self.cursor].path)
+        field.value = display_path(self.choices[self.cursor].path)
         self.input_value = field.value
 
     def action_use_default(self) -> None:

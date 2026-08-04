@@ -4,6 +4,7 @@ import time
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.screen import ModalScreen
 from textual.widgets import Static
 
 from .. import cli, config, history, routing, theme
@@ -97,6 +98,13 @@ class DlApp(App):
         self.set_interval(0.5, self.refresh_data)
         self.set_interval(0.1, self.table.refresh_view)
         self.call_after_refresh(self.refresh_data)
+
+    def check_action(self, action: str, parameters: tuple) -> bool:
+        """Priority bindings are resolved app-first, so a dashboard key would beat
+        the modal on top of it. Standing down lets the modal's binding run."""
+        if isinstance(self.screen, ModalScreen):
+            return False
+        return True
 
     def _filter_items(self, items: list[dict]) -> list[dict]:
         return items

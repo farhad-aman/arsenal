@@ -383,6 +383,19 @@ async def test_ctrl_c_in_the_picker_queues_nothing_and_exits(cfg, tmp_path):
     assert app.is_running is False
 
 
+async def test_tab_completes_inside_the_picker(cfg, tmp_path):
+    """Priority bindings resolve app-first, so the dashboard's tab binding would
+    otherwise swallow the key before the picker ever sees it."""
+    client = PreviewClient(active=())
+    app = PreviewApp(cfg, client, pending=[request(tmp_path, cfg)], queue=lambda c: [])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        picker = app.screen
+        await pilot.press("tab")
+        await pilot.pause()
+        assert str(tmp_path / "default") in picker.input_value
+
+
 async def test_cancelling_stops_the_remaining_pickers(cfg, tmp_path):
     """The second file must not be asked about after the batch is abandoned."""
     client = PreviewClient(active=())

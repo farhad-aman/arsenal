@@ -1,8 +1,11 @@
+from pathlib import Path
+
 import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Static
 
 from dl import theme
+from dl.destinations import Candidate
 from dl.tui.picker import PickerScreen
 
 
@@ -148,6 +151,29 @@ async def test_tab_completes_the_highlighted_path_into_the_input(cfg, tmp_path):
         await pilot.press("tab")
         await pilot.pause()
         assert str(tmp_path / "default") in screen.input_value
+
+
+async def test_tab_completes_a_home_path_in_the_form_the_filter_matches(
+    cfg, tmp_path, monkeypatch
+):
+    """Completing writes the path into the filter, which rebuilds the list. The
+    filter matches against the ~-collapsed form, so completing the raw /Users
+    form would drop the very row that was completed."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: tmp_path))
+    under_home = tmp_path / "not-created-yet"
+    screen = make(cfg, tmp_path)
+    screen.all_candidates = [Candidate(under_home, "🎬", "default folder", "default")]
+    screen.choices = list(screen.all_candidates)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        await pilot.pause()
+        assert screen.input_value.startswith("~/")
+        assert under_home in [c.path for c in screen.choices]
+        await pilot.press("enter")
+        await pilot.pause()
+    assert app.result == under_home
 
 
 async def test_header_shows_filename_and_position(cfg, tmp_path):
