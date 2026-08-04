@@ -53,6 +53,20 @@ def test_build_record_handles_missing_files_list(cfg):
     assert rec["url"] == ""
 
 
+def test_build_record_names_a_failure_that_never_got_a_path(cfg):
+    rec = hook.build_record(
+        status(
+            status="error",
+            errorMessage="SSL/TLS handshake failure",
+            files=[{"path": "", "uris": [{"uri": "https://e.com/100MB.bin"}]}],
+        ),
+        "error",
+        cfg,
+    )
+    assert rec["name"] == "100MB.bin"
+    assert rec["path"] == ""
+
+
 def test_build_record_avg_bps_is_zero_when_instant(cfg):
     rec = hook.build_record(status(), "complete", cfg)
     assert rec["avg_bps"] >= 0

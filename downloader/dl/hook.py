@@ -20,9 +20,10 @@ def _first_uri(status: dict) -> str:
 
 
 def build_record(status: dict, mode: str, cfg: Config) -> dict:
-    path = Path(_first_file(status).get("path", ""))
+    raw_path = _first_file(status).get("path", "")
     url = _first_uri(status)
-    name = path.name
+    path = Path(raw_path) if raw_path else None
+    name = path.name if path else routing.filename_from_url(url)
     total = int(status.get("totalLength", 0) or 0)
     speed = int(status.get("downloadSpeed", 0) or 0)
     resolution = routing.resolve(url, name, cfg)
@@ -32,7 +33,7 @@ def build_record(status: dict, mode: str, cfg: Config) -> dict:
         "bytes": total,
         "seconds": 0,
         "avg_bps": max(speed, 0),
-        "path": str(path),
+        "path": str(path) if path else "",
         "category": resolution.category.name,
         "url": url,
         "status": "ok" if mode == "complete" else "error",
