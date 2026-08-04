@@ -65,6 +65,8 @@ class DlApp(App):
         ("q", "quit", "quit"),
     ]
 
+    splash_when_empty = True
+
     def __init__(self, cfg: Config, client):
         super().__init__()
         self.cfg = cfg
@@ -93,22 +95,30 @@ class DlApp(App):
         self.set_interval(0.1, self.table.refresh_view)
         self.call_after_refresh(self.refresh_data)
 
+    def _filter_items(self, items: list[dict]) -> list[dict]:
+        return items
+
+    def _after_refresh(self, items: list[dict]) -> None:
+        return None
+
     async def refresh_data(self) -> None:
         try:
-            items = list(self.client.tell_active()) + list(self.client.tell_waiting())
+            polled = list(self.client.tell_active()) + list(self.client.tell_waiting())
             stat = self.client.get_global_stat()
         except (Aria2Unreachable, Aria2Error):
             self.disconnected = True
             self.status.update(f"[{self.theme_data.danger}]⚠ daemon lost — reconnecting[/]")
             return
         self.disconnected = False
+        items = self._filter_items(polled)
         self.table.set_rows([row_from_status(item, self.cfg) for item in items])
         elapsed = int(time.monotonic() - self.started)
         self.status.update_stats(stats_from(stat, self.limit, elapsed))
-        if not items and not self.showing_completed:
+        if not items and self.splash_when_empty and not self.showing_completed:
             self.table.update(
                 f"[{self.theme_data.accent}]{SPLASH}[/]\n   press a to add a download"
             )
+        self._after_refresh(items)
 
     def _selected(self):
         gid = self.table.selected_gid

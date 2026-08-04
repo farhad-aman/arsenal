@@ -349,6 +349,73 @@ async def test_hint_line_changes_with_the_tab(cfg, tmp_path, monkeypatch):
         assert "pause/resume" in app.hint_text
 
 
+async def test_filter_items_is_identity_by_default(cfg):
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        items = [{"gid": "x"}, {"gid": "y"}]
+        assert app._filter_items(items) == items
+
+
+async def test_base_app_shows_splash_when_empty(cfg):
+    client = FakeClient()
+    client.active = []
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert app.splash_when_empty is True
+        assert app.table.rows == []
+
+
+async def test_after_refresh_runs_on_a_successful_poll(cfg):
+    seen = []
+
+    class Probe(DlApp):
+        def _after_refresh(self, items):
+            seen.append(len(items))
+
+    app = Probe(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert seen and seen[-1] == 2
+
+
+async def test_after_refresh_is_skipped_when_the_daemon_is_unreachable(cfg):
+    from dl.rpc import Aria2Unreachable
+
+    seen = []
+
+    class Dead(DlApp):
+        def _after_refresh(self, items):
+            seen.append(items)
+
+    class DeadClient(FakeClient):
+        def tell_active(self):
+            raise Aria2Unreachable("gone")
+
+    app = Dead(cfg, DeadClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        seen.clear()
+        await app.refresh_data()
+        assert seen == []
+        assert app.disconnected is True
+
+
+async def test_filter_items_narrows_what_reaches_the_table(cfg):
+    class OnlyG2(DlApp):
+        def _filter_items(self, items):
+            return [i for i in items if i["gid"] == "g2"]
+
+    app = OnlyG2(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert [r.gid for r in app.table.rows] == ["g2"]
+
+
 async def test_lost_daemon_sets_disconnected_flag(cfg):
     from dl.rpc import Aria2Unreachable
 
