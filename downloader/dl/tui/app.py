@@ -1,5 +1,7 @@
+import asyncio
 import subprocess
 import time
+from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -47,6 +49,9 @@ HINT = (
     "o open   f finder   tab completed   q quit"
 )
 HINT_DONE = "o open   f finder   d delete   ↑↓ move   tab active   q quit"
+
+SETTLED = ("removed", "error", "complete")
+SETTLE_TIMEOUT = 5.0
 
 
 class DlApp(App):
@@ -257,6 +262,20 @@ class DlApp(App):
             except OSError:
                 pass
 
+    async def _settle_then_unlink(self, gid: str, path: Path) -> None:
+        """aria2 rewrites the control file while winding a download down, so a
+        sidecar deleted the instant remove() returns comes straight back."""
+        deadline = time.monotonic() + SETTLE_TIMEOUT
+        while time.monotonic() < deadline:
+            try:
+                status = self.client.tell_status(gid).get("status", "")
+            except (Aria2Error, Aria2Unreachable):
+                break
+            if status in SETTLED:
+                break
+            await asyncio.sleep(0.05)
+        self._unlink(path)
+
     def _delete_active(self) -> None:
         row = self._selected()
         if row is None:
@@ -271,7 +290,7 @@ class DlApp(App):
             except (Aria2Error, Aria2Unreachable):
                 pass
             if choice == "disk" and row.path:
-                self._unlink(row.path)
+                self.run_worker(self._settle_then_unlink(row.gid, row.path))
                 self.notify(f"deleted {row.name}")
 
         self.push_screen(DeleteModal(row.name or row.gid, has_file), chosen)

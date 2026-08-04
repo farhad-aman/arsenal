@@ -16,6 +16,7 @@ class FakeClient:
         self.positions = []
         self.global_options = {}
         self.added = []
+        self.removal_status = "removed"
         self.active = [
             {
                 "gid": "g1",
@@ -61,6 +62,9 @@ class FakeClient:
 
     def remove(self, gid):
         self.removed.append(gid)
+
+    def tell_status(self, gid):
+        return {"gid": gid, "status": self.removal_status}
 
     def change_position(self, gid, pos, how):
         self.positions.append((gid, pos, how))
@@ -313,6 +317,70 @@ async def test_delete_active_with_disk_removes_partial_file(cfg, tmp_path, monke
         assert client.removed == ["g1"]
         assert not partial.exists()
         assert not (tmp_path / "a.iso.aria2").exists()
+
+
+async def test_delete_active_waits_for_the_removal_to_settle(cfg, tmp_path, monkeypatch):
+    """aria2 rewrites the control file as it winds a download down, so unlinking
+    before the removal settles leaves the .aria2 sidecar behind."""
+    from dl.tui import app as app_module
+
+    partial = tmp_path / "a.iso"
+    partial.write_text("half")
+    sidecar = tmp_path / "a.iso.aria2"
+    sidecar.write_text("ctl")
+
+    client = FakeClient()
+    client.removal_status = "active"
+    client.active[0]["files"][0]["path"] = str(partial)
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        assert client.removed == ["g1"]
+        assert partial.exists(), "unlinked while aria2 was still winding down"
+
+        client.removal_status = "removed"
+        for _ in range(40):
+            await pilot.pause()
+            if not partial.exists():
+                break
+        assert not partial.exists()
+        assert not sidecar.exists()
+
+
+async def test_delete_active_gives_up_waiting_when_the_daemon_goes_away(
+    cfg, tmp_path, monkeypatch
+):
+    from dl.rpc import Aria2Unreachable
+    from dl.tui import app as app_module
+
+    partial = tmp_path / "a.iso"
+    partial.write_text("half")
+
+    class GoneClient(FakeClient):
+        def tell_status(self, gid):
+            raise Aria2Unreachable("gone")
+
+    client = GoneClient()
+    client.active[0]["files"][0]["path"] = str(partial)
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("d")
+        for _ in range(40):
+            await pilot.pause()
+            if not partial.exists():
+                break
+        assert not partial.exists()
 
 
 async def test_delete_active_list_only_keeps_partial_file(cfg, tmp_path, monkeypatch):
