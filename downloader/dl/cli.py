@@ -1,9 +1,9 @@
-import os
 import sys
 from pathlib import Path
 
 from . import routing
 from .config import Config, parse_rate
+from .destinations import ensure_writable
 from .format import human_bytes, human_speed
 from .routing import Resolution
 
@@ -24,14 +24,6 @@ def add_options(cfg: Config, resolution: Resolution) -> dict:
     }
 
 
-def _ensure_writable(target: Path) -> bool:
-    try:
-        target.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return False
-    return os.access(target, os.W_OK)
-
-
 def cmd_add(
     urls: list[str], cfg: Config, client, explicit_dir: Path | None
 ) -> tuple[int, list[str]]:
@@ -49,7 +41,7 @@ def cmd_add(
     for url in urls:
         name = routing.filename_from_url(url)
         resolution = routing.resolve(url, name, cfg, explicit_dir)
-        if not _ensure_writable(resolution.path):
+        if not ensure_writable(resolution.path):
             print(f"dl: cannot write to {resolution.path}", file=sys.stderr)
             failures += 1
             continue
