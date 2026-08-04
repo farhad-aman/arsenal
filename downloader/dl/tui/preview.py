@@ -5,7 +5,6 @@ from pathlib import Path
 from .. import duplicates, history, routing
 from ..config import Category
 from ..format import human_bytes, human_duration, human_speed
-from ..rpc import Aria2Error, Aria2Unreachable
 from ..theme import select
 from .app import DlApp
 from .modals import DuplicateModal
@@ -129,12 +128,6 @@ class PreviewApp(DlApp):
 
     def _finish_picking(self) -> None:
         self._ask_duplicate(0)
-
-    def _in_flight(self) -> list[dict]:
-        try:
-            return list(self.client.tell_active()) + list(self.client.tell_waiting())
-        except (Aria2Error, Aria2Unreachable):
-            return []
 
     def _target_for(self, index: int) -> Path | None:
         item = self.pending[index]

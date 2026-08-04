@@ -9,11 +9,12 @@ from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from .. import cli, config, history, routing, theme
+from .. import cli, config, duplicates, history, routing, theme
 from ..config import STATE_DIR, Config
+from ..format import human_bytes
 from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import CompletedTable, record_path
-from .modals import AddUrlModal, DeleteModal, SpeedLimitModal
+from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal
 from .status import StatusBar, stats_from
 from .table import DownloadTable, row_from_status
 
@@ -249,15 +250,76 @@ class DlApp(App):
 
     def action_add(self) -> None:
         def queue(urls: list[str] | None) -> None:
-            if not urls:
-                return
-            for url in urls:
-                name = routing.filename_from_url(url)
-                resolution = routing.resolve(url, name, self.cfg)
-                resolution.path.mkdir(parents=True, exist_ok=True)
-                self.client.add_uri([url], cli.add_options(self.cfg, resolution))
+            if urls:
+                self._queue_next(list(urls), 0)
 
         self.push_screen(AddUrlModal(), queue)
+
+    def _in_flight(self) -> list[dict]:
+        try:
+            return list(self.client.tell_active()) + list(self.client.tell_waiting())
+        except (Aria2Error, Aria2Unreachable):
+            return []
+
+    def _queue_next(self, urls: list[str], index: int) -> None:
+        """Queue one URL at a time so a collision can be asked about before the
+        next one is considered."""
+        if index >= len(urls):
+            return
+        url = urls[index]
+        name = routing.filename_from_url(url)
+        resolution = routing.resolve(url, name, self.cfg)
+        target = resolution.path / name if name else None
+        collision = duplicates.detect(
+            url, target, history.tail(self.history_log, 200), self._in_flight()
+        )
+        if collision is None:
+            self._queue_one(url, resolution, None, target)
+            self._queue_next(urls, index + 1)
+            return
+
+        def decided(choice: str | None) -> None:
+            """Escape declines this one and moves on — the dashboard has no
+            batch to abandon."""
+            if choice is not None:
+                self._queue_one(url, resolution, choice, target)
+            self._queue_next(urls, index + 1)
+
+        self.push_screen(
+            DuplicateModal(name or url, collision, human_bytes(collision.size)), decided
+        )
+
+    def _queue_one(self, url: str, resolution, decision: str | None, target: Path | None) -> None:
+        if decision == duplicates.SKIP:
+            self.notify(f"skipped {resolution.path.name or url}")
+            return
+        resolution.path.mkdir(parents=True, exist_ok=True)
+        options = cli.add_options(self.cfg, resolution, decision=decision)
+        if decision == duplicates.OVERWRITE and target is not None:
+            self.run_worker(self._replace(url, options, target))
+            return
+        self.client.add_uri([url], options)
+
+    async def _replace(self, url: str, options: dict, target: Path) -> None:
+        """Clear the old download out before the replacement starts, so aria2
+        cannot resurrect its control file on top of the new one."""
+        gid = next(
+            (
+                item.get("gid", "")
+                for item in self._in_flight()
+                if duplicates.path_of(item) == target
+            ),
+            "",
+        )
+        if gid:
+            try:
+                self.client.remove(gid)
+            except (Aria2Error, Aria2Unreachable):
+                pass
+            await self._settle_then_unlink(gid, target)
+        else:
+            self._unlink(target)
+        self.client.add_uri([url], options)
 
     def action_limit(self) -> None:
         row = self._selected()

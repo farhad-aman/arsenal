@@ -19,6 +19,7 @@ class FakeClient:
         self.removal_status = "removed"
         self.options = {}
         self.option_calls = []
+        self.add_calls = []
         self.active = [
             {
                 "gid": "g1",
@@ -54,6 +55,7 @@ class FakeClient:
 
     def add_uri(self, uris, options):
         self.added.append(uris[0])
+        self.add_calls.append((uris, options))
         return "g9"
 
     def pause(self, gid):
@@ -323,6 +325,125 @@ async def test_delete_active_with_disk_removes_partial_file(cfg, tmp_path, monke
         assert client.removed == ["g1"]
         assert not partial.exists()
         assert not (tmp_path / "a.iso.aria2").exists()
+
+
+def type_url(pilot, app, url):
+    """Fill the add modal and press its Queue button."""
+    from textual.widgets import Button, TextArea
+
+    app.screen.query_one("#urls", TextArea).text = url
+    app.screen.query_one("#ok", Button).press()
+
+
+async def test_adding_a_fresh_url_never_prompts(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        type_url(pilot, app, "https://e.com/brand-new.mkv")
+        await pilot.pause()
+        assert client.added == ["https://e.com/brand-new.mkv"]
+
+
+async def test_adding_a_url_whose_file_exists_prompts(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+    from dl.tui.modals import DuplicateModal
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    target = cfg.categories["video"].dir / "dup.mkv"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("already here")
+
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        type_url(pilot, app, "https://e.com/dup.mkv")
+        await pilot.pause()
+        assert isinstance(app.screen, DuplicateModal)
+        assert client.added == [], "queued before the question was answered"
+
+
+async def test_skipping_from_the_dashboard_queues_nothing(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    target = cfg.categories["video"].dir / "dup.mkv"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("already here")
+
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        type_url(pilot, app, "https://e.com/dup.mkv")
+        await pilot.pause()
+        await pilot.press("s")
+        await pilot.pause()
+        assert client.added == []
+    assert target.read_text() == "already here"
+
+
+async def test_renaming_from_the_dashboard_sends_the_rename_options(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    target = cfg.categories["video"].dir / "dup.mkv"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("keep me")
+
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        type_url(pilot, app, "https://e.com/dup.mkv")
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        assert len(client.add_calls) == 1
+        options = client.add_calls[0][1]
+        assert options["auto-file-renaming"] == "true"
+        assert options["continue"] == "false"
+    assert target.read_text() == "keep me"
+
+
+async def test_overwriting_from_the_dashboard_clears_the_old_file(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    target = cfg.categories["video"].dir / "dup.mkv"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("old")
+    target.with_name("dup.mkv.aria2").write_text("ctl")
+
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        type_url(pilot, app, "https://e.com/dup.mkv")
+        await pilot.pause()
+        await pilot.press("o")
+        await pilot.pause()
+        for _ in range(40):
+            await pilot.pause()
+            if not target.exists():
+                break
+        assert not target.exists()
+        assert not target.with_name("dup.mkv.aria2").exists()
+        assert client.add_calls[0][1]["allow-overwrite"] == "true"
 
 
 async def test_a_proxied_download_is_badged_in_the_table(cfg):
