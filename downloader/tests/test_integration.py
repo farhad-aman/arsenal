@@ -37,8 +37,18 @@ def env(tmp_path, monkeypatch):
     cats["iso"] = config.Category("iso", downloads / "ISO", ("iso",), "💿", "#4aa3ff")
     general = config.replace(base.general, default_dir=downloads / "other", idle_timeout=2)
     cfg = config.Config(general, base.limits, cats, {})
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        f'[general]\ndefault_dir = "{downloads / "other"}"\nidle_timeout = "2s"\n'
+        f'notify = false\n\n'
+        f'[categories.iso]\ndir = "{downloads / "ISO"}"\next = ["iso"]\n'
+        f'icon = "💿"\nhue = "#4aa3ff"\n'
+    )
     monkeypatch.setenv("DL_STATE_DIR", str(state))
+    monkeypatch.setenv("DL_CONFIG_FILE", str(config_file))
     monkeypatch.setattr(config, "STATE_DIR", state)
+    monkeypatch.setattr(config, "CONFIG_FILE", config_file)
     monkeypatch.setattr(daemon, "STATE_DIR", state)
     yield cfg, state
     try:

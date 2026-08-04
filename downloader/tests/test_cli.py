@@ -110,6 +110,39 @@ def test_cmd_add_with_no_urls_is_an_error(cfg, capsys):
     assert capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "value,ok",
+    [
+        ("https://e.com/a.iso", True),
+        ("http://e.com/a.iso", True),
+        ("ftp://e.com/a.iso", True),
+        ("magnet:?xt=urn:btih:abc", True),
+        ("/local/file.torrent", True),
+        ("limit off", False),
+        ("pause", False),
+        ("lst", False),
+        ("", False),
+    ],
+)
+def test_looks_like_url(value, ok):
+    assert cli.looks_like_url(value) is ok
+
+
+def test_cmd_add_refuses_a_mistyped_subcommand_instead_of_downloading_it(cfg, capsys):
+    client = FakeClient()
+    assert cli.cmd_add(["limit off"], cfg, client, None) == 1
+    err = capsys.readouterr().err
+    assert "not a URL" in err
+    assert "--help" in err
+    assert not client.added
+
+
+def test_cmd_add_rejects_the_whole_batch_if_any_entry_is_not_a_url(cfg, capsys):
+    client = FakeClient()
+    assert cli.cmd_add(["https://e.com/a.iso", "oops"], cfg, client, None) == 1
+    assert not client.added
+
+
 def test_cmd_ls_lists_active_and_waiting(cfg, capsys):
     client = FakeClient()
     client.active = [

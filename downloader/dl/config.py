@@ -11,7 +11,11 @@ STATE_DIR = (
     if os.environ.get("DL_STATE_DIR")
     else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dl"
 )
-CONFIG_FILE = CONFIG_DIR / "config.toml"
+CONFIG_FILE = (
+    Path(os.environ["DL_CONFIG_FILE"])
+    if os.environ.get("DL_CONFIG_FILE")
+    else CONFIG_DIR / "config.toml"
+)
 
 _DURATION = re.compile(r"^(\d+)\s*([smh]?)$")
 _MULTIPLIER = {"": 1, "s": 1, "m": 60, "h": 3600}

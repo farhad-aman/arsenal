@@ -3,6 +3,7 @@ from pathlib import Path
 
 from . import cli, config, daemon
 from .config import CONFIG_FILE
+from .rpc import Aria2Error, Aria2Unreachable
 
 USAGE = """\
 dl — download manager
@@ -23,7 +24,16 @@ SUBCOMMANDS = {"ls", "pause", "resume", "rm", "limit", "watch", "kill", "help"}
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = list(argv if argv is not None else sys.argv[1:])
+    try:
+        return _run(list(argv if argv is not None else sys.argv[1:]))
+    except (Aria2Error, Aria2Unreachable) as exc:
+        print(f"dl: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+
+
+def _run(args: list[str]) -> int:
 
     if args and args[0] in ("-h", "--help", "help"):
         print(USAGE)

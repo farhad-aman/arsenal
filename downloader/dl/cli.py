@@ -7,6 +7,12 @@ from .config import Config, parse_rate
 from .format import human_bytes, human_speed
 from .routing import Resolution
 
+SCHEMES = ("http://", "https://", "ftp://", "ftps://", "sftp://", "magnet:")
+
+
+def looks_like_url(value: str) -> bool:
+    return value.startswith(SCHEMES) or value.endswith(".torrent")
+
 
 def add_options(cfg: Config, resolution: Resolution) -> dict:
     return {
@@ -29,6 +35,12 @@ def _ensure_writable(target: Path) -> bool:
 def cmd_add(urls: list[str], cfg: Config, client, explicit_dir: Path | None) -> int:
     if not urls:
         print("dl: no URLs given", file=sys.stderr)
+        return 1
+    bad = [u for u in urls if not looks_like_url(u)]
+    if bad:
+        for value in bad:
+            print(f"dl: not a URL: {value!r}", file=sys.stderr)
+        print("dl: run `dl --help` for usage", file=sys.stderr)
         return 1
     failures = 0
     for url in urls:

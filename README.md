@@ -62,6 +62,45 @@ unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY no_proxy NO_PROXY
 
 ---
 
+### `dl` — Download Manager
+
+IDM-style download manager in the terminal: queue, pause/resume, per-filetype
+destination folders, speed limits, and a live animated TUI. Drives a lazily
+spawned `aria2c` daemon, so Ctrl-C never interrupts a transfer and nothing runs
+while idle.
+
+```
+Usage: dl [options]
+
+  dl <url> [url...]     queue downloads, exit immediately
+  dl -f <file|->        queue URLs from a file or stdin
+  dl -d <dir> <url>     override destination for this download
+  dl                    open the TUI
+
+  dl ls                 list downloads
+  dl pause <gid|all>    dl resume <gid|all>    dl rm <gid>
+  dl limit <rate|off>   global speed limit
+  dl watch              queue URLs as you copy them
+  dl kill               stop the daemon
+
+Examples:
+  dl https://example.com/ubuntu.iso    → ~/Downloads/ISO
+  dl -f links.txt                      queue a batch
+  dl limit 2M                          cap total throughput
+```
+
+Installed differently from the other tools — it has a Python package and a
+private venv, so it uses a Makefile rather than a symlink:
+
+```bash
+brew install aria2
+cd ~/arsenal/downloader && make install
+```
+
+Full documentation, configuration reference, and keymap: [`downloader/README.md`](downloader/README.md).
+
+---
+
 ### `vpn` — Multi-VPN Orchestrator
 
 Manages OpenVPN + FortiVPN + sing-box connections with graceful startup/shutdown.
@@ -175,6 +214,7 @@ ln -sf ~/arsenal/net-reset ~/.local/bin/net-reset
 
 | Tool | Install |
 |------|---------|
+| `aria2` | `brew install aria2` |
 | `openfortivpn` | `brew install openfortivpn` |
 | `openconnect` | `brew install openconnect` |
 | `openvpn` | `brew install openvpn` |

@@ -7,11 +7,21 @@ import sys
 import time
 from pathlib import Path
 
+from . import config as config_module
 from .config import STATE_DIR, Config
 from .rpc import Aria2, Aria2Error, Aria2Unreachable
 
 PORT_RANGE = range(6810, 6820)
-_SHIM = '#!/bin/sh\nexec env DL_STATE_DIR={state} {python} -m dl.hook {mode} "$@"\n'
+_SHIM = (
+    "#!/bin/sh\n"
+    'exec env DL_STATE_DIR={state} DL_CONFIG_FILE={config} {python} -m dl.hook {mode} "$@"\n'
+)
+
+
+def _config_path() -> Path:
+    """Resolved at call time so the hook subprocess inherits the same config the
+    parent used, rather than whatever the real home happens to hold."""
+    return Path(os.environ.get("DL_CONFIG_FILE", str(config_module.CONFIG_FILE)))
 
 
 class Aria2Missing(Exception):
@@ -50,7 +60,9 @@ def write_hook_shims(state: Path, python: str) -> tuple[Path, Path]:
     written = []
     for mode in ("complete", "error"):
         target = hooks / f"{mode}.sh"
-        target.write_text(_SHIM.format(python=python, mode=mode, state=state))
+        target.write_text(
+            _SHIM.format(python=python, mode=mode, state=state, config=_config_path())
+        )
         target.chmod(0o755)
         written.append(target)
     return written[0], written[1]
