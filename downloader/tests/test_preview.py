@@ -1,4 +1,63 @@
-from dl.tui.preview import summarise
+import pytest
+
+from dl.rpc import Aria2Unreachable
+from dl.tui.preview import PreviewApp, summarise
+
+
+@pytest.fixture
+def cfg(sandbox_cfg):
+    return sandbox_cfg
+
+
+def status(gid, state="active", **over):
+    base = {
+        "gid": gid,
+        "status": state,
+        "totalLength": "1000",
+        "completedLength": "500",
+        "downloadSpeed": "100",
+        "connections": "4",
+        "files": [{"path": f"/tmp/{gid}.iso", "uris": [{"uri": f"https://e.com/{gid}.iso"}]}],
+        "errorMessage": "",
+    }
+    base.update(over)
+    return base
+
+
+class PreviewClient:
+    def __init__(self, active=("g1", "g2"), waiting=()):
+        self.active = [status(g) for g in active]
+        self.waiting = [status(g, "waiting") for g in waiting]
+        self.paused = []
+        self.final = {}
+        self.fail = False
+
+    def tell_active(self):
+        if self.fail:
+            raise Aria2Unreachable("gone")
+        return self.active
+
+    def tell_waiting(self, offset=0, num=1000):
+        if self.fail:
+            raise Aria2Unreachable("gone")
+        return self.waiting
+
+    def tell_stopped(self, offset=0, num=1000):
+        return []
+
+    def get_global_stat(self):
+        if self.fail:
+            raise Aria2Unreachable("gone")
+        return {"downloadSpeed": "100", "numActive": "2", "numWaiting": "0", "numStopped": "0"}
+
+    def tell_status(self, gid):
+        return self.final.get(gid, status(gid, "complete", completedLength="1000"))
+
+    def pause(self, gid):
+        self.paused.append(gid)
+
+    def unpause(self, gid):
+        pass
 
 
 def result(**over):
@@ -91,3 +150,135 @@ def test_summarise_never_emits_markup_that_would_break_a_terminal():
 
 def test_summarise_unnamed_result_has_a_placeholder():
     assert "(unnamed)" in summarise([result(name="")])[0]
+
+
+async def test_preview_shows_only_the_watched_gids(cfg):
+    client = PreviewClient(active=("g1", "g2", "g3"))
+    app = PreviewApp(cfg, client, ["g1", "g3"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert sorted(r.gid for r in app.table.rows) == ["g1", "g3"]
+
+
+async def test_preview_pauses_only_the_selected_watched_gid(cfg):
+    client = PreviewClient(active=("g1", "g2", "g3"))
+    app = PreviewApp(cfg, client, ["g2"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("space")
+        assert client.paused == ["g2"]
+
+
+async def test_preview_pause_all_covers_only_the_watch_set(cfg):
+    client = PreviewClient(active=("g1", "g2", "g3"))
+    app = PreviewApp(cfg, client, ["g1", "g3"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("p")
+        assert sorted(client.paused) == ["g1", "g3"]
+
+
+async def test_preview_exits_once_every_watched_gid_settles(cfg):
+    client = PreviewClient(active=("g1",))
+    app = PreviewApp(cfg, client, ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        client.active = []
+        await app.refresh_data()
+        await pilot.pause()
+    assert app.is_running is False
+    assert [r["status"] for r in app.results] == ["complete"]
+
+
+async def test_preview_stays_while_one_gid_is_still_waiting(cfg):
+    client = PreviewClient(active=("g1",), waiting=("g2",))
+    app = PreviewApp(cfg, client, ["g1", "g2"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        client.active = []
+        await app.refresh_data()
+        await pilot.pause()
+        assert app.is_running is True
+
+
+async def test_preview_does_not_exit_when_the_daemon_is_unreachable(cfg):
+    client = PreviewClient(active=("g1",))
+    app = PreviewApp(cfg, client, ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        client.fail = True
+        await app.refresh_data()
+        await pilot.pause()
+        assert app.is_running is True
+        assert app.disconnected is True
+        assert app.results == []
+
+
+async def test_preview_never_renders_the_splash(cfg):
+    client = PreviewClient(active=("g1",))
+    app = PreviewApp(cfg, client, ["g9"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.splash_when_empty is False
+        assert "d o w n l o a d e r" not in app.table.text
+
+
+async def test_preview_collects_error_results(cfg):
+    client = PreviewClient(active=("g1",))
+    client.final["g1"] = status("g1", "error", errorMessage="HTTP 403")
+    app = PreviewApp(cfg, client, ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        client.active = []
+        await app.refresh_data()
+        await pilot.pause()
+    assert app.results[0]["status"] == "error"
+    assert app.results[0]["error"] == "HTTP 403"
+
+
+async def test_preview_hint_replaces_the_dashboard_hint(cfg):
+    client = PreviewClient(active=("g1",))
+    app = PreviewApp(cfg, client, ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert "detach" in app.hint_text
+        assert "add" not in app.hint_text
+
+
+async def test_preview_ignores_the_add_key(cfg):
+    client = PreviewClient(active=("g1",))
+    app = PreviewApp(cfg, client, ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        assert len(app.screen_stack) == 1
+
+
+async def test_preview_ignores_the_completed_tab_key(cfg):
+    client = PreviewClient(active=("g1",))
+    app = PreviewApp(cfg, client, ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        await pilot.pause()
+        assert app.showing_completed is False
+
+
+async def test_preview_ignores_the_reorder_keys(cfg):
+    class Reorderable(PreviewClient):
+        def __init__(self):
+            super().__init__(active=("g1",))
+            self.positions = []
+
+        def change_position(self, gid, pos, how):
+            self.positions.append(gid)
+            return 0
+
+    client = Reorderable()
+    app = PreviewApp(cfg, client, ["g1"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("J")
+        await pilot.press("K")
+        assert client.positions == []
