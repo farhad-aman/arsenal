@@ -49,6 +49,15 @@ def test_human_speed_appends_per_second():
     assert human_speed(0) == "0 B/s"
 
 
+def test_human_speed_keeps_a_decimal_above_ten_unlike_human_bytes():
+    assert human_speed(13002342) == "12.4 MB/s"
+    assert human_bytes(13002342) == "12 MB"
+
+
+def test_human_speed_negative_is_zero():
+    assert human_speed(-5) == "0 B/s"
+
+
 def test_sparkline_uses_all_eight_levels_across_a_ramp():
     line = sparkline(list(range(8)), 8)
     assert line == BLOCKS

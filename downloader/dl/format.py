@@ -21,7 +21,14 @@ def human_bytes(n: int) -> str:
 
 
 def human_speed(bps: int) -> str:
-    return f"{human_bytes(max(bps, 0))}/s"
+    """Always keeps one decimal above B/s — speed fluctuates, so 12.4 reads
+    better than 12, unlike the static sizes human_bytes formats."""
+    value = float(max(bps, 0))
+    for unit in _UNITS:
+        if value < 1024 or unit == _UNITS[-1]:
+            return f"{int(value)} B/s" if unit == "B" else f"{value:.1f} {unit}/s"
+        value /= 1024
+    return DASH
 
 
 def human_duration(seconds: int) -> str:
