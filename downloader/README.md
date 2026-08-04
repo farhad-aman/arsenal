@@ -81,6 +81,18 @@ Magnet links and `.torrent` URLs work anywhere a URL does.
 everything else in the queue keeps going out directly, so you can pull one
 blocked file through the proxy at full speed without tunnelling the rest.
 
+Proxied rows are badged 🌐 in the dashboard, so a queue with both kinds in it
+stays readable:
+
+```
+  🎬  Furious.S01E01.mkv 🌐                        412 MB / 1.2 GB
+  💿  ubuntu-24.04.iso                             1.9 GB / 5.7 GB
+```
+
+The badge is read back from aria2 rather than remembered locally, so it is right
+even in a dashboard opened long after the download was queued, from another
+shell. Each download is asked about once and the answer cached.
+
 ```toml
 [proxy]
 url = "http://127.0.0.1:2080"

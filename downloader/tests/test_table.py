@@ -118,6 +118,37 @@ def test_render_row_expanded_but_unselected_adds_nothing(cfg, th):
     assert len(lines) == 2
 
 
+def test_row_is_not_proxied_by_default(cfg):
+    assert row_from_status(status(), cfg).proxied is False
+
+
+def test_row_carries_the_proxy_flag(cfg):
+    assert row_from_status(status(), cfg, proxied=True).proxied is True
+
+
+def test_render_row_badges_a_proxied_download(cfg, th):
+    proxied = render_row(row_from_status(status(), cfg, proxied=True), th, 100, False, 0)
+    assert "🌐" in proxied[0]
+
+
+def test_render_row_leaves_a_direct_download_unbadged(cfg, th):
+    direct = render_row(row_from_status(status(), cfg), th, 100, False, 0)
+    assert "🌐" not in direct[0]
+
+
+def test_render_row_badges_without_emoji_in_a_mono_theme(cfg):
+    from dl import theme
+
+    mono = theme.THEMES["mono"]
+    proxied = render_row(row_from_status(status(), cfg, proxied=True), mono, 100, False, 0)
+    assert "🌐" not in proxied[0]
+    assert "via proxy" in proxied[0].lower() or "[p]" in proxied[0].lower()
+
+
+def test_render_row_keeps_its_two_line_shape_when_proxied(cfg, th):
+    assert len(render_row(row_from_status(status(), cfg, proxied=True), th, 100, False, 0)) == 2
+
+
 def test_render_row_selected_gets_accent_marker(cfg, th):
     selected = render_row(row_from_status(status(), cfg), th, 100, selected=True, frame=0)
     plain = render_row(row_from_status(status(), cfg), th, 100, selected=False, frame=0)

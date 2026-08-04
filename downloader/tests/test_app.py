@@ -17,6 +17,8 @@ class FakeClient:
         self.global_options = {}
         self.added = []
         self.removal_status = "removed"
+        self.options = {}
+        self.option_calls = []
         self.active = [
             {
                 "gid": "g1",
@@ -65,6 +67,10 @@ class FakeClient:
 
     def tell_status(self, gid):
         return {"gid": gid, "status": self.removal_status}
+
+    def get_option(self, gid):
+        self.option_calls.append(gid)
+        return self.options.get(gid, {})
 
     def change_position(self, gid, pos, how):
         self.positions.append((gid, pos, how))
@@ -317,6 +323,82 @@ async def test_delete_active_with_disk_removes_partial_file(cfg, tmp_path, monke
         assert client.removed == ["g1"]
         assert not partial.exists()
         assert not (tmp_path / "a.iso.aria2").exists()
+
+
+async def test_a_proxied_download_is_badged_in_the_table(cfg):
+    client = FakeClient()
+    client.options = {"g1": {"all-proxy": "http://127.0.0.1:2080"}}
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        by_gid = {row.gid: row for row in app.table.rows}
+        assert by_gid["g1"].proxied is True
+        assert by_gid["g2"].proxied is False
+
+
+async def test_an_http_proxy_option_also_counts_as_proxied(cfg):
+    """An older daemon that inherited http_proxy really is proxying."""
+    client = FakeClient()
+    client.options = {"g1": {"http-proxy": "http://127.0.0.1:2080"}}
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert {r.gid: r.proxied for r in app.table.rows}["g1"] is True
+
+
+async def test_an_empty_proxy_option_is_not_proxied(cfg):
+    client = FakeClient()
+    client.options = {"g1": {"all-proxy": ""}}
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert {r.gid: r.proxied for r in app.table.rows}["g1"] is False
+
+
+async def test_options_are_fetched_once_per_download(cfg):
+    """Options cannot change under us, and the table refreshes twice a second."""
+    client = FakeClient()
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        for _ in range(4):
+            await app.refresh_data()
+        assert sorted(set(client.option_calls)) == ["g1", "g2"]
+        assert len(client.option_calls) == 2
+
+
+async def test_a_failed_option_lookup_leaves_the_row_unbadged(cfg):
+    from dl.rpc import Aria2Error
+
+    class Grumpy(FakeClient):
+        def get_option(self, gid):
+            raise Aria2Error(1, "nope")
+
+    app = DlApp(cfg, Grumpy())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert all(row.proxied is False for row in app.table.rows)
+
+
+async def test_the_proxy_cache_forgets_downloads_that_are_gone(cfg):
+    client = FakeClient()
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert set(app.proxied) == {"g1", "g2"}
+        client.active = [client.active[0]]
+        await app.refresh_data()
+        assert set(app.proxied) == {"g1"}
 
 
 async def test_delete_active_waits_for_the_removal_to_settle(cfg, tmp_path, monkeypatch):

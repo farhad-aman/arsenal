@@ -45,6 +45,9 @@ class PreviewClient:
     def tell_stopped(self, offset=0, num=1000):
         return []
 
+    def get_option(self, gid):
+        return {}
+
     def get_global_stat(self):
         if self.fail:
             raise Aria2Unreachable("gone")

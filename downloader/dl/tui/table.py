@@ -26,6 +26,7 @@ class Row:
     path: Path
     conns: int
     error: str
+    proxied: bool = False
     history: list[int] = field(default_factory=list)
 
     @property
@@ -33,7 +34,7 @@ class Row:
         return (self.done * 100.0 / self.total) if self.total else 0.0
 
 
-def row_from_status(item: dict, cfg: Config) -> Row:
+def row_from_status(item: dict, cfg: Config, proxied: bool = False) -> Row:
     files = item.get("files") or [{}]
     first = files[0]
     path = Path(first.get("path", "") or "")
@@ -56,6 +57,7 @@ def row_from_status(item: dict, cfg: Config) -> Row:
         path=path,
         conns=int(item.get("connections", 0) or 0),
         error=item.get("errorMessage", "") or "",
+        proxied=proxied,
     )
 
 
@@ -109,6 +111,8 @@ def render_row(
         f"{human_bytes(row.done)} / {human_bytes(row.total)}" if row.total else human_bytes(row.done)
     )
     label = escape(row.name) or "(resolving…)"
+    if row.proxied:
+        label = f"{label} {'🌐' if theme.icons else '[via proxy]'}"
 
     head = f"{marker} {icon}  {label:<44} {sizes:>20}"
 

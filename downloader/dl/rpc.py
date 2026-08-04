@@ -81,6 +81,9 @@ class Aria2:
     def change_position(self, gid: str, pos: int, how: str) -> int:
         return self._call("aria2.changePosition", gid, pos, how)
 
+    def get_option(self, gid: str) -> dict:
+        return self._call("aria2.getOption", gid)
+
     def change_option(self, gid: str, options: dict) -> str:
         return self._call("aria2.changeOption", gid, options)
 

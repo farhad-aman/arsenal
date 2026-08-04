@@ -85,6 +85,7 @@ class DlApp(App):
         self.started = time.monotonic()
         self.showing_completed = False
         self.disconnected = False
+        self.proxied: dict[str, bool] = {}
         self.status = StatusBar(self.theme_data)
         self.table = DownloadTable(self.theme_data, id="table")
         self.completed = CompletedTable(self.theme_data, id="completed")
@@ -111,6 +112,20 @@ class DlApp(App):
             return False
         return True
 
+    def _proxy_flags(self, items: list[dict]) -> None:
+        """A download's options never change under us, so each gid is asked
+        about once — the table refreshes twice a second."""
+        live = {item.get("gid", "") for item in items}
+        for gid in live - self.proxied.keys():
+            if not gid:
+                continue
+            try:
+                options = self.client.get_option(gid)
+            except (Aria2Error, Aria2Unreachable):
+                continue
+            self.proxied[gid] = bool(options.get("all-proxy") or options.get("http-proxy"))
+        self.proxied = {gid: flag for gid, flag in self.proxied.items() if gid in live}
+
     def _filter_items(self, items: list[dict]) -> list[dict]:
         return items
 
@@ -127,7 +142,13 @@ class DlApp(App):
             return
         self.disconnected = False
         items = self._filter_items(polled)
-        self.table.set_rows([row_from_status(item, self.cfg) for item in items])
+        self._proxy_flags(items)
+        self.table.set_rows(
+            [
+                row_from_status(item, self.cfg, self.proxied.get(item.get("gid", ""), False))
+                for item in items
+            ]
+        )
         elapsed = int(time.monotonic() - self.started)
         self.status.update_stats(stats_from(stat, elapsed))
         if not items and self.splash_when_empty and not self.showing_completed:

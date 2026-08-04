@@ -102,6 +102,12 @@ def test_change_global_option_params(server, client):
     assert server.calls[0]["params"][1] == {"max-overall-download-limit": "2M"}
 
 
+def test_get_option_sends_the_gid(server, client):
+    server.replies["aria2.getOption"] = {"all-proxy": "http://127.0.0.1:2080"}
+    assert client.get_option("g1")["all-proxy"] == "http://127.0.0.1:2080"
+    assert server.calls[0]["params"][1:] == ["g1"]
+
+
 def test_pause_unpause_remove_send_gid(server, client):
     for method, name in [
         ("aria2.pause", "pause"),
