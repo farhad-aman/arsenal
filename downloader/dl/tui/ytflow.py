@@ -81,7 +81,11 @@ class YouTubeSetupApp(App):
                 return
             target = Path(where or default_dir)
             job = ytjob.new_job(
-                url, target, choices, self.cfg.proxy if self.proxy else ""
+                url,
+                target,
+                choices,
+                self.cfg.proxy if self.proxy else "",
+                self.cfg.cookies_from,
             )
             spawn(job)
             self.queued.append(job)

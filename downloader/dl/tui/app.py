@@ -155,8 +155,8 @@ class DlApp(App):
         self.table.set_rows(rows)
         elapsed = int(time.monotonic() - self.started)
         self.status.update_stats(stats_from(stat, elapsed))
-        if not items and self.splash_when_empty and not self.showing_completed:
-            self.table.update(
+        if self.splash_when_empty and not self.showing_completed:
+            self.table.placeholder = (
                 f"[{self.theme_data.accent}]{SPLASH}[/]\n   press a to add a download"
             )
         self._after_refresh(items)

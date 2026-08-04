@@ -49,6 +49,7 @@ class Limits:
 
 
 DEFAULT_PROXY = "http://127.0.0.1:2080"
+DEFAULT_COOKIES = "chrome"
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class Config:
     categories: dict[str, Category]
     domains: dict[str, str]
     proxy: str = DEFAULT_PROXY
+    cookies_from: str = DEFAULT_COOKIES
 
 
 def parse_duration(text: str) -> int:
@@ -176,6 +178,7 @@ def load(path: Path | None = None) -> Config:
             categories=_categories_from(raw.get("categories", {})),
             domains={str(k).lower(): str(v) for k, v in raw.get("domains", DEFAULT_DOMAINS).items()},
             proxy=str(raw.get("proxy", {}).get("url", DEFAULT_PROXY)),
+            cookies_from=str(raw.get("youtube", {}).get("cookies_from", DEFAULT_COOKIES)),
         )
     except (tomllib.TOMLDecodeError, ValueError, TypeError, AttributeError, KeyError) as exc:
         print(f"dl: {target} is invalid ({exc}) — using defaults", file=sys.stderr)
@@ -193,6 +196,11 @@ notify          = true
 
 [proxy]
 url = "http://127.0.0.1:2080"
+
+[youtube]
+# YouTube refuses anonymous requests ("confirm you're not a bot"), so yt-dlp
+# borrows cookies from this browser. Set to "" to send none.
+cookies_from = "chrome"
 
 [limits]
 per_download = "off"

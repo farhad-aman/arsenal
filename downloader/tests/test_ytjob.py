@@ -88,6 +88,18 @@ def test_command_omits_the_proxy_by_default(job):
     assert "--proxy" not in ytjob.command(job)
 
 
+def test_command_borrows_browser_cookies_when_configured(tmp_path):
+    """YouTube refuses anonymous requests with 'confirm you're not a bot'."""
+    job = ytjob.new_job("https://youtu.be/a", tmp_path, DEFAULTS, cookies_from="chrome")
+    argv = ytjob.command(job)
+    assert argv[argv.index("--cookies-from-browser") + 1] == "chrome"
+
+
+def test_command_sends_no_cookies_when_disabled(tmp_path):
+    job = ytjob.new_job("https://youtu.be/a", tmp_path, DEFAULTS, cookies_from="")
+    assert "--cookies-from-browser" not in ytjob.command(job)
+
+
 def test_progress_sums_the_partial_files(tmp_path):
     dest = tmp_path / "d"
     dest.mkdir()

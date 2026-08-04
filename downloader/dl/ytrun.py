@@ -36,10 +36,26 @@ def burn_in(job: dict) -> str:
     return ""
 
 
+def last_error(log: Path) -> str:
+    """yt-dlp explains itself on stderr; without this the row just says
+    'exited 1' and the actual cause is lost."""
+    try:
+        lines = log.read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        if line.startswith(("ERROR:", "WARNING:")):
+            return line.split(":", 1)[1].strip()[:300]
+    return lines[-1][:300] if lines else ""
+
+
 def finalize(state: Path, job: dict, code: int, cfg) -> dict:
     directory = Path(job["dir"])
     if code != 0:
-        return _update(state, job, status="error", error=f"yt-dlp exited {code}")
+        detail = last_error(state / f"{job['id']}.log")
+        return _update(
+            state, job, status="error", error=detail or f"yt-dlp exited {code}"
+        )
 
     if ytjob.wants_burn_in(job):
         _update(state, job, status="burning")
@@ -84,14 +100,17 @@ def main(argv: list[str]) -> int:
     directory = Path(job["dir"])
     directory.mkdir(parents=True, exist_ok=True)
 
+    log = state / f"{job['id']}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
     try:
-        proc = subprocess.Popen(
-            ytjob.command(job),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            cwd=str(directory),
-        )
+        with open(log, "wb") as sink:
+            proc = subprocess.Popen(
+                ytjob.command(job),
+                stdout=sink,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                cwd=str(directory),
+            )
     except OSError as exc:
         _update(state, job, status="error", error=f"yt-dlp not runnable: {exc}")
         return 1

@@ -446,6 +446,63 @@ async def test_overwriting_from_the_dashboard_clears_the_old_file(cfg, tmp_path,
         assert client.add_calls[0][1]["allow-overwrite"] == "true"
 
 
+async def test_a_youtube_job_shows_even_with_no_aria2_downloads(cfg, tmp_path, monkeypatch):
+    """The splash used to be painted whenever aria2 was idle, hiding yt rows."""
+    from dl import ytjob
+    from dl.tui import app as app_module
+    from dl.youtube import DEFAULTS
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    job = ytjob.new_job("https://youtu.be/abc", tmp_path / "out", DEFAULTS)
+    job["status"] = "active"
+    job["done"] = 2048
+    ytjob.save(tmp_path / "yt", job)
+
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert [r.gid for r in app.table.rows] == [job["id"]]
+        assert "d o w n l o a d e r" not in app.table.text
+
+
+async def test_the_splash_still_shows_when_nothing_at_all_is_running(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert "d o w n l o a d e r" in app.table.text
+
+
+async def test_a_finished_youtube_job_leaves_the_list(cfg, tmp_path, monkeypatch):
+    from dl import ytjob
+    from dl.tui import app as app_module
+    from dl.youtube import DEFAULTS
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    job = ytjob.new_job("https://youtu.be/abc", tmp_path / "out", DEFAULTS)
+    job["status"] = "complete"
+    ytjob.save(tmp_path / "yt", job)
+
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert app.table.rows == []
+
+
 async def test_a_proxied_download_is_badged_in_the_table(cfg):
     client = FakeClient()
     client.options = {"g1": {"all-proxy": "http://127.0.0.1:2080"}}

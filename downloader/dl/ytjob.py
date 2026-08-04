@@ -14,13 +14,16 @@ _SKIP_SUFFIXES = (".aria2", ".ytdl", ".json", ".tmp")
 OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
 
 
-def new_job(url: str, directory: Path, choices: Choices, proxy: str = "") -> dict:
+def new_job(
+    url: str, directory: Path, choices: Choices, proxy: str = "", cookies_from: str = ""
+) -> dict:
     return {
         "id": f"yt-{secrets.token_hex(6)}",
         "url": url,
         "dir": str(directory),
         "choices": asdict(choices),
         "proxy": proxy,
+        "cookies_from": cookies_from,
         "status": "queued",
         "title": "",
         "pid": 0,
@@ -69,6 +72,9 @@ def command(job: dict) -> list[str]:
     argv += ["--downloader-args", "aria2c:-x16 -s16 -k1M --summary-interval=1"]
     if job.get("proxy"):
         argv += ["--proxy", job["proxy"]]
+    if job.get("cookies_from"):
+        # YouTube refuses anonymous requests with "confirm you're not a bot".
+        argv += ["--cookies-from-browser", job["cookies_from"]]
     argv += build_args(choices_of(job))
     argv += ["-o", str(Path(job["dir"]) / OUTPUT_TEMPLATE)]
     argv.append(job["url"])

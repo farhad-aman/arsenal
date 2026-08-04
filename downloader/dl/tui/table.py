@@ -170,6 +170,7 @@ class DownloadTable(Static):
         self.frame = 0
         self.expanded = False
         self.text = ""
+        self.placeholder = ""
 
     @property
     def selected_gid(self) -> str | None:
@@ -203,7 +204,7 @@ class DownloadTable(Static):
                 )
             )
             lines.append("")
-        self.text = "\n".join(lines)
+        self.text = "\n".join(lines) if self.rows else self.placeholder
         self.update(self.text)
 
     def render_lines_count(self) -> list[str]:
