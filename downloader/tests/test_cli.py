@@ -252,3 +252,49 @@ def test_read_url_file_from_disk(tmp_path):
 def test_read_url_file_from_stdin(monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO("https://e.com/a.iso\n"))
     assert cli.read_url_file("-") == ["https://e.com/a.iso"]
+
+
+def test_cmd_add_uses_a_chosen_directory(cfg, tmp_path):
+    client = FakeClient()
+    target = tmp_path / "picked"
+    rc, gids = cli.cmd_add(["https://e.com/a.iso"], cfg, client, None, chosen=[target])
+    assert rc == 0
+    assert client.added[0][1]["dir"] == str(target)
+    assert target.is_dir()
+
+
+def test_cmd_add_chosen_none_entry_falls_back_to_routing(cfg):
+    client = FakeClient()
+    cli.cmd_add(["https://e.com/a.iso"], cfg, client, None, chosen=[None])
+    assert client.added[0][1]["dir"] == str(cfg.categories["iso"].dir)
+
+
+def test_cmd_add_chosen_applies_positionally(cfg, tmp_path):
+    client = FakeClient()
+    first = tmp_path / "one"
+    cli.cmd_add(
+        ["https://e.com/a.iso", "https://e.com/b.mkv"], cfg, client, None, chosen=[first, None]
+    )
+    assert client.added[0][1]["dir"] == str(first)
+    assert client.added[1][1]["dir"] == str(cfg.categories["video"].dir)
+
+
+def test_cmd_add_keeps_the_filetype_icon_for_a_chosen_directory(cfg, tmp_path, capsys):
+    client = FakeClient()
+    cli.cmd_add(["https://e.com/a.iso"], cfg, client, None, chosen=[tmp_path / "picked"])
+    assert "💿" in capsys.readouterr().out
+
+
+def test_cmd_add_chosen_wins_over_explicit_dir(cfg, tmp_path):
+    client = FakeClient()
+    cli.cmd_add(
+        ["https://e.com/a.iso"], cfg, client, tmp_path / "flag", chosen=[tmp_path / "picked"]
+    )
+    assert client.added[0][1]["dir"] == str(tmp_path / "picked")
+
+
+def test_cmd_add_without_chosen_is_unchanged(cfg):
+    client = FakeClient()
+    rc, gids = cli.cmd_add(["https://e.com/a.iso"], cfg, client, None)
+    assert rc == 0
+    assert client.added[0][1]["dir"] == str(cfg.categories["iso"].dir)

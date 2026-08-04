@@ -25,7 +25,11 @@ def add_options(cfg: Config, resolution: Resolution) -> dict:
 
 
 def cmd_add(
-    urls: list[str], cfg: Config, client, explicit_dir: Path | None
+    urls: list[str],
+    cfg: Config,
+    client,
+    explicit_dir: Path | None,
+    chosen: list[Path | None] | None = None,
 ) -> tuple[int, list[str]]:
     if not urls:
         print("dl: no URLs given", file=sys.stderr)
@@ -38,9 +42,12 @@ def cmd_add(
         return 1, []
     failures = 0
     gids: list[str] = []
-    for url in urls:
+    for index, url in enumerate(urls):
         name = routing.filename_from_url(url)
-        resolution = routing.resolve(url, name, cfg, explicit_dir)
+        routed = routing.resolve(url, name, cfg)
+        pick = chosen[index] if chosen and index < len(chosen) else None
+        target = pick or explicit_dir or routed.path
+        resolution = Resolution(Path(target), routed.category)
         if not ensure_writable(resolution.path):
             print(f"dl: cannot write to {resolution.path}", file=sys.stderr)
             failures += 1
