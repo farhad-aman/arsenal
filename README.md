@@ -84,14 +84,12 @@ Usage: dl [options]
 
   dl ls                 list downloads
   dl pause <gid|all>    dl resume <gid|all>    dl rm <gid>
-  dl limit <rate|off>   global speed limit
   dl watch              queue URLs as you copy them
   dl kill               stop the daemon
 
 Examples:
   dl https://example.com/ubuntu.iso    → ~/Downloads/ISO
   dl -f links.txt                      queue a batch
-  dl limit 2M                          cap total throughput
 ```
 
 Installed differently from the other tools — it has a Python package and a

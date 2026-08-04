@@ -17,12 +17,11 @@ dl — download manager
 
   dl ls                    list downloads
   dl pause <gid|all>       dl resume <gid|all>      dl rm <gid>
-  dl limit <rate|off>      global speed limit
   dl watch                 queue URLs as you copy them
   dl kill                  stop the daemon
 """
 
-SUBCOMMANDS = {"ls", "pause", "resume", "rm", "limit", "watch", "kill", "help"}
+SUBCOMMANDS = {"ls", "pause", "resume", "rm", "watch", "kill", "help"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,8 +87,6 @@ def _run(args: list[str]) -> int:
             print("dl: rm needs a gid", file=sys.stderr)
             return 1
         return cli.cmd_rm(args[1], client)
-    if command == "limit":
-        return cli.cmd_limit(args[1] if len(args) > 1 else "off", cfg, client)
     if command == "kill":
         return cli.cmd_kill(client)
     if command == "watch":

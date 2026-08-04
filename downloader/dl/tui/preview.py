@@ -19,7 +19,7 @@ class Request:
     default_dir: Path
     category: Category
 PREVIEW_HINT = (
-    "space pause/resume   l limit   L limit this   o open   f finder   "
+    "space pause/resume   l limit   o open   f finder   "
     "d delete   ^C detach"
 )
 MARKS = {

@@ -35,7 +35,6 @@ dl                       open the TUI
 
 dl ls                    list downloads
 dl pause <gid|all>       dl resume <gid|all>      dl rm <gid>
-dl limit <rate|off>      global speed limit
 dl watch                 queue URLs as you copy them
 dl kill                  stop the daemon
 ```
@@ -60,7 +59,7 @@ A destination you choose — with the picker or with `-d` — is never second-gu
 on completion. Automatic routing only corrects a file that landed in the folder
 its URL implied but turned out to be a different type.
 
-Inside the preview: `space` pause/resume, `l` / `L` limit, `o` open, `f` reveal
+Inside the preview: `space` pause/resume, `l` limit, `o` open, `f` reveal
 in Finder, `d` delete, `↑` `↓` move, `Ctrl-C` detach. Adding, reordering, and the
 Completed tab are dashboard-only — run `dl` for those.
 
@@ -74,14 +73,16 @@ Magnet links and `.torrent` URLs work anywhere a URL does.
 | Key | Action | | Key | Action |
 |---|---|---|---|---|
 | `a` | add URL (prefilled from clipboard) | | `space` | pause/resume selected |
-| `d` | delete (confirms if incomplete) | | `J` / `K` | reorder in queue |
-| `l` | speed limit, global | | `L` | speed limit, selected |
-| `o` | reveal in Finder | | `p` / `u` | pause all / resume all |
-| `r` | retry a failed download | | `tab` | Active ⇄ Completed |
-| `enter` | expand row detail | | `↑` / `↓` | move cursor |
-| `q` | quit — downloads keep running | | | |
+| `J` / `K` | reorder in queue | | | |
+| `l` | speed limit for the selected download | | `r` | retry a failed download |
+| `o` | open the file | | `f` | reveal in Finder |
+| `p` / `u` | pause all / resume all | | `d` | delete: from list, or disk too |
+| `tab` | Active ⇄ Completed | | `enter` | expand row detail |
+| `↑` / `↓` | move cursor | | `q` | quit — downloads keep running |
 
-Mouse works too: click to select, scroll, click the limit indicator.
+Speed limits apply to one download at a time — there is no global throttle.
+
+Mouse works too: click to select and scroll.
 
 ## Configuration
 
@@ -95,8 +96,7 @@ Mouse works too: click to select, scroll, click the limit indicator.
 | `general.theme` | `"aurora"` | `aurora`, `ember`, `matrix`, `mono` |
 | `general.ascii_icons` | `false` | replace emoji with 2-letter tags |
 | `general.notify` | `true` | macOS banner on completion |
-| `limits.global` | `"off"` | e.g. `"2M"` |
-| `limits.per_download` | `"off"` | e.g. `"500K"` |
+| `limits.per_download` | `"off"` | default cap per download, e.g. `"500K"` |
 | `limits.connections` | `16` | connections per server |
 | `limits.splits` | `16` | segments per file |
 | `limits.min_split` | `"1M"` | smallest segment |

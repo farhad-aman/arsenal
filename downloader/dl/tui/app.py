@@ -56,8 +56,7 @@ class DlApp(App):
         ("d", "delete", "delete"),
         ("J", "move_down", "down"),
         ("K", "move_up", "up"),
-        ("l", "limit", "limit"),
-        ("L", "limit_one", "limit one"),
+        ("l", "limit", "speed limit"),
         ("o", "open", "open"),
         ("f", "reveal", "reveal in finder"),
         ("p", "pause_all", "pause all"),
@@ -80,7 +79,6 @@ class DlApp(App):
         self.started = time.monotonic()
         self.showing_completed = False
         self.disconnected = False
-        self.limit = cfg.limits.global_rate
         self.status = StatusBar(self.theme_data)
         self.table = DownloadTable(self.theme_data, id="table")
         self.completed = CompletedTable(self.theme_data, id="completed")
@@ -118,7 +116,7 @@ class DlApp(App):
         items = self._filter_items(polled)
         self.table.set_rows([row_from_status(item, self.cfg) for item in items])
         elapsed = int(time.monotonic() - self.started)
-        self.status.update_stats(stats_from(stat, self.limit, elapsed))
+        self.status.update_stats(stats_from(stat, elapsed))
         if not items and self.splash_when_empty and not self.showing_completed:
             self.table.update(
                 f"[{self.theme_data.accent}]{SPLASH}[/]\n   press a to add a download"
@@ -225,25 +223,18 @@ class DlApp(App):
         self.push_screen(AddUrlModal(), queue)
 
     def action_limit(self) -> None:
-        def apply(rate: str | None) -> None:
-            if rate is None:
-                return
-            value = config.parse_rate(rate)
-            self.client.change_global_option({"max-overall-download-limit": value})
-            self.limit = value
-
-        self.push_screen(SpeedLimitModal(self.limit), apply)
-
-    def action_limit_one(self) -> None:
         row = self._selected()
         if row is None:
             return
 
         def apply(rate: str | None) -> None:
-            if rate is not None:
-                self.client.change_option(row.gid, {"max-download-limit": config.parse_rate(rate)})
+            if rate is None:
+                return
+            value = config.parse_rate(rate)
+            self.client.change_option(row.gid, {"max-download-limit": value})
+            self.notify(f"{row.name}: limit {'off' if value == '0' else value}")
 
-        self.push_screen(SpeedLimitModal("off"), apply)
+        self.push_screen(SpeedLimitModal(self.cfg.limits.per_download), apply)
 
     def action_delete(self) -> None:
         if self.showing_completed:

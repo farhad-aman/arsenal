@@ -106,7 +106,6 @@ def aria2_args(cfg: Config, state: Path, port: int, secret: str) -> list[str]:
         f"--max-connection-per-server={cfg.limits.connections}",
         f"--split={cfg.limits.splits}",
         f"--min-split-size={cfg.limits.min_split}",
-        f"--max-overall-download-limit={cfg.limits.global_rate}",
         f"--max-download-limit={cfg.limits.per_download}",
         f"--save-session={state / 'session'}",
         "--save-session-interval=30",

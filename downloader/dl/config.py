@@ -42,7 +42,6 @@ class General:
 
 @dataclass(frozen=True)
 class Limits:
-    global_rate: str
     per_download: str
     connections: int
     splits: int
@@ -108,7 +107,7 @@ _DEFAULT_GENERAL = General(
 )
 
 _DEFAULT_LIMITS = Limits(
-    global_rate="0", per_download="0", connections=16, splits=16, min_split="1M"
+    per_download="0", connections=16, splits=16, min_split="1M"
 )
 
 
@@ -138,7 +137,6 @@ def _limits_from(raw: dict) -> Limits:
     lim = _DEFAULT_LIMITS
     return replace(
         lim,
-        global_rate=parse_rate(raw["global"]) if "global" in raw else lim.global_rate,
         per_download=parse_rate(raw["per_download"]) if "per_download" in raw else lim.per_download,
         connections=int(raw["connections"]) if "connections" in raw else lim.connections,
         splits=int(raw["splits"]) if "splits" in raw else lim.splits,
@@ -188,7 +186,6 @@ ascii_icons     = false
 notify          = true
 
 [limits]
-global       = "off"
 per_download = "off"
 connections  = 16
 splits       = 16

@@ -225,16 +225,6 @@ def test_cmd_rm_removes_gid():
     assert client.removed == ["g9"]
 
 
-def test_cmd_limit_sets_overall_rate(cfg):
-    client = FakeClient()
-    assert cli.cmd_limit("2M", cfg, client) == 0
-    assert client.global_options["max-overall-download-limit"] == "2M"
-
-
-def test_cmd_limit_off_means_zero(cfg):
-    client = FakeClient()
-    cli.cmd_limit("off", cfg, client)
-    assert client.global_options["max-overall-download-limit"] == "0"
 
 
 def test_cmd_kill_calls_shutdown():

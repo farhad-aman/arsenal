@@ -12,17 +12,15 @@ class Stats:
     active: int
     waiting: int
     done: int
-    limit: str
     elapsed: int
 
 
-def stats_from(global_stat: dict, limit: str, elapsed: int) -> Stats:
+def stats_from(global_stat: dict, elapsed: int) -> Stats:
     return Stats(
         speed=int(global_stat.get("downloadSpeed", 0) or 0),
         active=int(global_stat.get("numActive", 0) or 0),
         waiting=int(global_stat.get("numWaiting", 0) or 0),
         done=int(global_stat.get("numStopped", 0) or 0),
-        limit=limit,
         elapsed=elapsed,
     )
 
@@ -41,10 +39,9 @@ def _graph(history: list[int], theme: Theme, width: int) -> str:
 
 def render_status(stats: Stats, history: list[int], theme: Theme, width: int) -> str:
     graph_width = 40 if width >= 90 else (20 if width >= 66 else 10)
-    limit = "off" if stats.limit in ("0", "", "off") else stats.limit
     speed = human_speed(stats.speed)
     counts = f"↓{stats.active}  ⏳{stats.waiting}  ✅{stats.done}"
-    tail = f"🚦 {limit}   ⏱ {human_duration(stats.elapsed)}"
+    tail = f"⏱ {human_duration(stats.elapsed)}"
     if theme.mono:
         return f"{speed}   {sparkline(history, graph_width)}   {counts}   {tail}"
     return (

@@ -100,13 +100,6 @@ def cmd_rm(target: str, client) -> int:
     return 0
 
 
-def cmd_limit(rate: str, cfg: Config, client) -> int:
-    value = parse_rate(rate)
-    client.change_global_option({"max-overall-download-limit": value})
-    print(f"  limit {'off' if value == '0' else value}")
-    return 0
-
-
 def cmd_kill(client) -> int:
     client.shutdown()
     print("  daemon stopped")

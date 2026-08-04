@@ -455,3 +455,54 @@ async def test_reconnect_clears_disconnected_flag(cfg):
         client.fail = False
         await app.refresh_data()
         assert app.disconnected is False
+
+
+async def test_l_applies_the_limit_to_the_selected_download_only(cfg, monkeypatch, tmp_path):
+    from dl.tui import app as app_module
+    from textual.widgets import Input
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    client = FakeClient()
+    applied = []
+    client.change_option = lambda gid, opts: applied.append((gid, opts))
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+        app.screen.query_one("#rate", Input).value = "500K"
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert applied == [("g1", {"max-download-limit": "500K"})]
+    assert client.global_options == {}
+
+
+async def test_there_is_no_global_limit_key(cfg, monkeypatch, tmp_path):
+    """`L` used to cap every download at once; that option is gone."""
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("L")
+        await pilot.pause()
+        assert len(app.screen_stack) == 1
+        assert client.global_options == {}
+
+
+async def test_limit_on_an_empty_queue_does_nothing(cfg, monkeypatch, tmp_path):
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    client = FakeClient()
+    client.active = []
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+        assert len(app.screen_stack) == 1

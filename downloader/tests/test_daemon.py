@@ -105,7 +105,7 @@ def test_aria2_args_apply_config_limits(tmp_path, cfg):
     assert "--max-connection-per-server=16" in args
     assert "--split=16" in args
     assert "--min-split-size=1M" in args
-    assert "--max-overall-download-limit=0" in args
+    assert "--max-download-limit=0" in args
 
 
 def test_aria2_args_set_session_and_hooks(tmp_path, cfg):
@@ -175,3 +175,9 @@ def test_corrupt_session_is_quarantined(tmp_path):
     daemon.quarantine_session(tmp_path)
     assert not session.exists()
     assert (tmp_path / "session.bad").read_text() == "junk"
+
+
+def test_aria2_args_never_set_a_global_rate_limit(tmp_path, cfg):
+    """Limits are per-download; a daemon-wide cap would throttle everything."""
+    args = daemon.aria2_args(cfg, tmp_path, 6810, "x")
+    assert not any("max-overall-download-limit" in a for a in args)
