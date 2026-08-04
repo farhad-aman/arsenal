@@ -12,6 +12,7 @@ dl — download manager
   dl <url> [url...]        queue downloads
   dl -f <file|->           queue URLs from a file or stdin
   dl -d <dir> <url>        override the destination for this download
+  dl -p <url>              download through the sing-box proxy
   --no-preview             queue and exit without attaching the live preview
   dl                       open the TUI
 
@@ -42,6 +43,9 @@ def _run(args: list[str]) -> int:
 
     preview = "--no-preview" not in args
     args = [a for a in args if a != "--no-preview"]
+
+    proxy = "-p" in args or "--proxy" in args
+    args = [a for a in args if a not in ("-p", "--proxy")]
 
     if not CONFIG_FILE.exists():
         config.write_default(CONFIG_FILE)
@@ -98,11 +102,11 @@ def _run(args: list[str]) -> int:
         daemon.bump_generation(config.STATE_DIR)
         interactive = preview and sys.stdout.isatty()
         if not interactive:
-            rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir)
+            rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy)
             return rc
 
         if explicit_dir is not None or not all(cli.looks_like_url(u) for u in urls):
-            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir)
+            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy)
             if gids:
                 lines, _cancelled = run_preview(cfg, client, gids=gids)
                 for line in lines:
@@ -118,7 +122,7 @@ def _run(args: list[str]) -> int:
         outcome = {"rc": 0}
 
         def queue(chosen):
-            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, chosen or None)
+            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, chosen or None, proxy)
             outcome["rc"] = rc
             return gids
 

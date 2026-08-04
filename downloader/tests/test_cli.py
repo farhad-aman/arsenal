@@ -64,6 +64,29 @@ def test_add_options_carry_dir_and_limits(cfg):
     assert options["min-split-size"] == "1M"
 
 
+def test_add_options_omit_the_proxy_by_default(cfg):
+    resolution = routing.resolve("https://e.com/a.iso", "a.iso", cfg)
+    assert "all-proxy" not in cli.add_options(cfg, resolution)
+
+
+def test_add_options_carry_the_proxy_when_asked(cfg):
+    resolution = routing.resolve("https://e.com/a.iso", "a.iso", cfg)
+    options = cli.add_options(cfg, resolution, proxy=True)
+    assert options["all-proxy"] == "http://127.0.0.1:2080"
+
+
+def test_cmd_add_sends_every_url_through_the_proxy(cfg):
+    client = FakeClient()
+    cli.cmd_add(["https://e.com/a.iso", "https://e.com/b.mkv"], cfg, client, None, proxy=True)
+    assert all(opts.get("all-proxy") for _uris, opts in client.added)
+
+
+def test_cmd_add_without_proxy_sends_nothing_extra(cfg):
+    client = FakeClient()
+    cli.cmd_add(["https://e.com/a.iso"], cfg, client, None)
+    assert all("all-proxy" not in opts for _uris, opts in client.added)
+
+
 def test_cmd_add_queues_each_url(cfg, capsys):
     client = FakeClient()
     rc, gids = cli.cmd_add(["https://e.com/a.iso", "https://e.com/b.mkv"], cfg, client, None)

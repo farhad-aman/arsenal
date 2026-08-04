@@ -14,14 +14,17 @@ def looks_like_url(value: str) -> bool:
     return value.startswith(SCHEMES) or value.endswith(".torrent")
 
 
-def add_options(cfg: Config, resolution: Resolution) -> dict:
-    return {
+def add_options(cfg: Config, resolution: Resolution, proxy: bool = False) -> dict:
+    options = {
         "dir": str(resolution.path),
         "max-connection-per-server": str(cfg.limits.connections),
         "split": str(cfg.limits.splits),
         "min-split-size": cfg.limits.min_split,
         "max-download-limit": cfg.limits.per_download,
     }
+    if proxy:
+        options["all-proxy"] = cfg.proxy
+    return options
 
 
 def cmd_add(
@@ -30,6 +33,7 @@ def cmd_add(
     client,
     explicit_dir: Path | None,
     chosen: list[Path | None] | None = None,
+    proxy: bool = False,
 ) -> tuple[int, list[str]]:
     if not urls:
         print("dl: no URLs given", file=sys.stderr)
@@ -52,8 +56,9 @@ def cmd_add(
             print(f"dl: cannot write to {resolution.path}", file=sys.stderr)
             failures += 1
             continue
-        gids.append(client.add_uri([url], add_options(cfg, resolution)))
-        print(f"  {resolution.category.icon} queued  {name or url}  →  {resolution.path}")
+        gids.append(client.add_uri([url], add_options(cfg, resolution, proxy)))
+        via = "  🌐 via proxy" if proxy else ""
+        print(f"  {resolution.category.icon} queued  {name or url}  →  {resolution.path}{via}")
     return (1 if failures else 0), gids
 
 

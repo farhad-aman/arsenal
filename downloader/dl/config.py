@@ -48,12 +48,16 @@ class Limits:
     min_split: str
 
 
+DEFAULT_PROXY = "http://127.0.0.1:2080"
+
+
 @dataclass(frozen=True)
 class Config:
     general: General
     limits: Limits
     categories: dict[str, Category]
     domains: dict[str, str]
+    proxy: str = DEFAULT_PROXY
 
 
 def parse_duration(text: str) -> int:
@@ -117,6 +121,7 @@ def defaults() -> Config:
         limits=_DEFAULT_LIMITS,
         categories=dict(DEFAULT_CATEGORIES),
         domains=dict(DEFAULT_DOMAINS),
+        proxy=DEFAULT_PROXY,
     )
 
 
@@ -170,6 +175,7 @@ def load(path: Path | None = None) -> Config:
             limits=_limits_from(raw.get("limits", {})),
             categories=_categories_from(raw.get("categories", {})),
             domains={str(k).lower(): str(v) for k, v in raw.get("domains", DEFAULT_DOMAINS).items()},
+            proxy=str(raw.get("proxy", {}).get("url", DEFAULT_PROXY)),
         )
     except (tomllib.TOMLDecodeError, ValueError, TypeError, AttributeError, KeyError) as exc:
         print(f"dl: {target} is invalid ({exc}) — using defaults", file=sys.stderr)
@@ -184,6 +190,9 @@ idle_timeout    = "10m"
 theme           = "aurora"
 ascii_icons     = false
 notify          = true
+
+[proxy]
+url = "http://127.0.0.1:2080"
 
 [limits]
 per_download = "off"

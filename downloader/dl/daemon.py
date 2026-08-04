@@ -18,6 +18,16 @@ _SHIM = (
 )
 
 
+_PROXY_ENV = ("http_proxy", "https_proxy", "ftp_proxy", "all_proxy", "no_proxy")
+
+
+def spawn_env() -> dict:
+    """aria2 reads http_proxy and friends from the environment. The daemon
+    outlives the shell that started it, so inheriting them would let a stale
+    `vpn -p` proxy every later download. -p is the only proxy switch."""
+    return {k: v for k, v in os.environ.items() if k.lower() not in _PROXY_ENV}
+
+
 def _config_path() -> Path:
     """Resolved at call time so the hook subprocess inherits the same config the
     parent used, rather than whatever the real home happens to hold."""
@@ -152,6 +162,7 @@ def _spawn(cfg: Config, state: Path, port: int, secret: str) -> None:
             stdin=subprocess.DEVNULL,
             start_new_session=True,
             cwd=os.path.expanduser("~"),
+            env=spawn_env(),
         )
 
 

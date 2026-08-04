@@ -30,6 +30,7 @@ make uninstall   # remove venv and shim
 dl <url> [url...]        queue downloads and watch them live
 dl -f <file|->           queue URLs from a file or stdin
 dl -d <dir> <url>        override the destination for this download
+dl -p <url>              download through the sing-box proxy
 dl --no-preview <url>    queue and exit without the live preview
 dl                       open the TUI
 
@@ -73,6 +74,26 @@ Completed tab are dashboard-only — run `dl` for those.
 works.
 
 Magnet links and `.torrent` URLs work anywhere a URL does.
+
+## Proxy
+
+`dl -p <url>` sends that download through the sing-box proxy. It is per-download:
+everything else in the queue keeps going out directly, so you can pull one
+blocked file through the proxy at full speed without tunnelling the rest.
+
+```toml
+[proxy]
+url = "http://127.0.0.1:2080"
+```
+
+The address must speak HTTP — aria2 has no SOCKS support at all. sing-box's
+`mixed` inbound serves HTTP and SOCKS on the same port, so the default works
+against `vpn -s` as-is.
+
+The daemon is started with `http_proxy`, `no_proxy` and friends stripped from its
+environment. Without that, a shell with `vpn -p` active would proxy every
+download, and because the daemon outlives that shell the setting would stick for
+downloads queued later from anywhere. `-p` is the only thing that decides.
 
 ## Keys
 

@@ -80,6 +80,7 @@ Usage: dl [options]
   dl <url> [url...]     queue downloads and watch them live
   dl -f <file|->        queue URLs from a file or stdin
   dl -d <dir> <url>     override destination for this download
+  dl -p <url>           download through the sing-box proxy (:2080)
   dl --no-preview <url> queue and exit without the live preview
   dl                    open the TUI
 

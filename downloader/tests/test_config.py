@@ -15,6 +15,28 @@ def test_parse_duration_rejects_garbage():
         config.parse_duration("soon")
 
 
+def test_defaults_point_the_proxy_at_singbox():
+    assert config.defaults().proxy == "http://127.0.0.1:2080"
+
+
+def test_proxy_url_can_be_overridden(tmp_path):
+    target = tmp_path / "config.toml"
+    target.write_text('[proxy]\nurl = "http://127.0.0.1:8080"\n')
+    assert config.load(target).proxy == "http://127.0.0.1:8080"
+
+
+def test_proxy_falls_back_when_the_section_is_absent(tmp_path):
+    target = tmp_path / "config.toml"
+    target.write_text('[general]\nmax_concurrent = 2\n')
+    assert config.load(target).proxy == "http://127.0.0.1:2080"
+
+
+def test_default_toml_documents_the_proxy(tmp_path):
+    target = tmp_path / "config.toml"
+    config.write_default(target)
+    assert config.load(target).proxy == "http://127.0.0.1:2080"
+
+
 @pytest.mark.parametrize(
     "text,rate", [("off", "0"), ("OFF", "0"), ("", "0"), ("2M", "2M"), ("500K", "500K")]
 )

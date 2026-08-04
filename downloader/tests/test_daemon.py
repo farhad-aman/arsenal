@@ -169,6 +169,21 @@ def test_ensure_running_without_binary_raises(tmp_path, cfg, monkeypatch):
         daemon.ensure_running(cfg, tmp_path)
 
 
+def test_spawn_env_drops_ambient_proxy_settings(monkeypatch):
+    """A shell with `vpn -p` active would otherwise proxy every download, and the
+    daemon outlives the shell that spawned it. -p alone decides proxying."""
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:2080")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:2080")
+    monkeypatch.setenv("ALL_PROXY", "socks5://127.0.0.1:2080")
+    monkeypatch.setenv("no_proxy", "localhost,127.0.0.1")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    env = daemon.spawn_env()
+
+    assert env["PATH"] == "/usr/bin"
+    assert not [k for k in env if "proxy" in k.lower()]
+
+
 def test_corrupt_session_is_quarantined(tmp_path):
     session = tmp_path / "session"
     session.write_text("junk")

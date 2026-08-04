@@ -127,6 +127,59 @@ def test_interactive_run_goes_through_the_picker(monkeypatch, tmp_path):
     assert calls[0].get("queue") is not None
 
 
+def test_proxy_flag_reaches_cmd_add(monkeypatch, tmp_path):
+    from dl import cli
+
+    seen = {}
+    calls = []
+    _wire(monkeypatch, tmp_path, True, calls)
+
+    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False):
+        seen["urls"] = urls
+        seen["proxy"] = proxy
+        return 0, ["gidX"]
+
+    monkeypatch.setattr(cli, "cmd_add", record)
+    entry.main(["-p", "https://e.com/a.iso"])
+    assert seen["proxy"] is True
+    assert seen["urls"] == ["https://e.com/a.iso"]
+
+
+def _record_add(monkeypatch, seen):
+    from dl import cli
+
+    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False):
+        seen["urls"] = urls
+        seen["proxy"] = proxy
+        return 0, ["gidX"]
+
+    monkeypatch.setattr(cli, "cmd_add", record)
+
+
+def test_long_proxy_flag_is_accepted(monkeypatch, tmp_path):
+    seen = {}
+    _wire(monkeypatch, tmp_path, True, [])
+    _record_add(monkeypatch, seen)
+    entry.main(["--proxy", "https://e.com/a.iso"])
+    assert seen["proxy"] is True
+
+
+def test_without_the_flag_the_proxy_stays_off(monkeypatch, tmp_path):
+    seen = {}
+    _wire(monkeypatch, tmp_path, True, [])
+    _record_add(monkeypatch, seen)
+    entry.main(["https://e.com/a.iso"])
+    assert seen["proxy"] is False
+
+
+def test_the_proxy_flag_is_not_treated_as_a_url(monkeypatch, tmp_path):
+    seen = {}
+    _wire(monkeypatch, tmp_path, True, [])
+    _record_add(monkeypatch, seen)
+    entry.main(["-p", "https://e.com/a.iso"])
+    assert seen["urls"] == ["https://e.com/a.iso"]
+
+
 def test_a_cancelled_picker_returns_130(monkeypatch, tmp_path):
     calls = []
     _wire(monkeypatch, tmp_path, True, calls)
