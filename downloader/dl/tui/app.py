@@ -8,9 +8,9 @@ from textual.widgets import Static
 
 from .. import cli, config, history, routing, theme
 from ..config import STATE_DIR, Config
-from ..format import human_bytes, human_duration
 from ..rpc import Aria2Error, Aria2Unreachable
-from .modals import AddUrlModal, ConfirmModal, SpeedLimitModal
+from .completed import CompletedTable, record_path
+from .modals import AddUrlModal, DeleteModal, SpeedLimitModal
 from .status import StatusBar, stats_from
 from .table import DownloadTable, row_from_status
 
@@ -28,17 +28,19 @@ Screen { layout: vertical; }
 StatusBar { height: 1; dock: top; padding: 0 1; }
 #body { height: 1fr; padding: 0 1; }
 #hint { dock: bottom; height: 1; padding: 0 1; }
-AddUrlModal, SpeedLimitModal, ConfirmModal { align: center middle; }
-#add-box, #limit-box, #confirm-box {
+AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal { align: center middle; }
+#add-box, #limit-box, #confirm-box, #delete-box {
     width: 70; padding: 1 2; border: round $accent; background: $surface;
 }
+#delete-box Button { width: 100%; margin-top: 1; }
 #urls { height: 8; }
 """
 
 HINT = (
     "a add   space pause/resume   d delete   J K reorder   l limit   "
-    "o open   tab completed   q quit"
+    "o open   f finder   tab completed   q quit"
 )
+HINT_DONE = "o open   f finder   d delete   ↑↓ move   tab active   q quit"
 
 
 class DlApp(App):
@@ -51,7 +53,8 @@ class DlApp(App):
         ("K", "move_up", "up"),
         ("l", "limit", "limit"),
         ("L", "limit_one", "limit one"),
-        ("o", "reveal", "reveal"),
+        ("o", "open", "open"),
+        ("f", "reveal", "reveal in finder"),
         ("p", "pause_all", "pause all"),
         ("u", "resume_all", "resume all"),
         ("r", "retry", "retry"),
@@ -73,14 +76,16 @@ class DlApp(App):
         self.limit = cfg.limits.global_rate
         self.status = StatusBar(self.theme_data)
         self.table = DownloadTable(self.theme_data, id="table")
-        self.completed = Static("", markup=True, id="completed")
+        self.completed = CompletedTable(self.theme_data, id="completed")
+        self.hint_text = HINT
+        self.hint = Static(HINT, id="hint")
 
     def compose(self) -> ComposeResult:
         yield self.status
         with VerticalScroll(id="body"):
             yield self.table
             yield self.completed
-        yield Static(HINT, id="hint")
+        yield self.hint
 
     def on_mount(self) -> None:
         self.completed.display = False
@@ -111,11 +116,25 @@ class DlApp(App):
             return None
         return next((r for r in self.table.rows if r.gid == gid), None)
 
+    @property
+    def history_log(self):
+        return STATE_DIR / "history.jsonl"
+
+    def _active_widget(self):
+        return self.completed if self.showing_completed else self.table
+
+    def _selected_path(self):
+        if self.showing_completed:
+            record = self.completed.selected
+            return record_path(record) if record else None
+        row = self._selected()
+        return row.path if row and row.path else None
+
     def action_cursor_down(self) -> None:
-        self.table.move(1)
+        self._active_widget().move(1)
 
     def action_cursor_up(self) -> None:
-        self.table.move(-1)
+        self._active_widget().move(-1)
 
     def action_expand(self) -> None:
         self.table.expanded = not self.table.expanded
@@ -155,30 +174,28 @@ class DlApp(App):
         resolution = routing.resolve("", row.name, self.cfg)
         self.client.add_uri([str(row.path)], cli.add_options(self.cfg, resolution))
 
+    def action_open(self) -> None:
+        path = self._selected_path()
+        if path and path.exists():
+            subprocess.run(["open", str(path)], check=False)
+        elif path:
+            self.notify(f"{path.name} is not on disk", severity="warning")
+
     def action_reveal(self) -> None:
-        row = self._selected()
-        if row and row.path:
-            subprocess.run(["open", "-R", str(row.path)], check=False)
+        path = self._selected_path()
+        if path and path.exists():
+            subprocess.run(["open", "-R", str(path)], check=False)
+        elif path:
+            self.notify(f"{path.name} is not on disk", severity="warning")
 
     def action_toggle_tab(self) -> None:
         self.showing_completed = not self.showing_completed
         self.table.display = not self.showing_completed
         self.completed.display = self.showing_completed
+        self.hint_text = HINT_DONE if self.showing_completed else HINT
+        self.hint.update(self.hint_text)
         if self.showing_completed:
-            self._render_completed()
-
-    def _render_completed(self) -> None:
-        rows = history.tail(STATE_DIR / "history.jsonl", 50)[::-1]
-        lines = []
-        for record in rows:
-            mark = "✅" if record.get("status") == "ok" else "❌"
-            age = human_duration(int(time.time()) - int(record.get("ts", 0) or 0))
-            lines.append(
-                f"  {mark}  {record.get('name', ''):<38} "
-                f"{human_bytes(int(record.get('bytes', 0) or 0)):>10}  "
-                f"{record.get('category', ''):<9} {age} ago"
-            )
-        self.completed.update("\n".join(lines) or "  (nothing finished yet)")
+            self.completed.load(self.history_log)
 
     def action_add(self) -> None:
         def queue(urls: list[str] | None) -> None:
@@ -214,18 +231,57 @@ class DlApp(App):
         self.push_screen(SpeedLimitModal("off"), apply)
 
     def action_delete(self) -> None:
+        if self.showing_completed:
+            self._delete_completed()
+        else:
+            self._delete_active()
+
+    def _unlink(self, path) -> None:
+        for target in (path, path.with_name(path.name + ".aria2")):
+            try:
+                target.unlink()
+            except OSError:
+                pass
+
+    def _delete_active(self) -> None:
         row = self._selected()
         if row is None:
             return
+        has_file = bool(row.path) and row.path.exists()
 
-        def confirm(yes: bool) -> None:
-            if yes:
+        def chosen(choice: str | None) -> None:
+            if choice is None:
+                return
+            try:
                 self.client.remove(row.gid)
+            except (Aria2Error, Aria2Unreachable):
+                pass
+            if choice == "disk" and row.path:
+                self._unlink(row.path)
+                self.notify(f"deleted {row.name}")
 
-        if row.done < row.total:
-            self.push_screen(ConfirmModal(f"Delete {row.name}? It is incomplete."), confirm)
-        else:
-            self.client.remove(row.gid)
+        self.push_screen(DeleteModal(row.name or row.gid, has_file), chosen)
+
+    def _delete_completed(self) -> None:
+        record = self.completed.selected
+        if record is None:
+            return
+        path = record_path(record)
+        has_file = bool(path and path.exists())
+
+        def chosen(choice: str | None) -> None:
+            if choice is None:
+                return
+            history.remove_entry(self.history_log, record)
+            if choice == "disk" and path:
+                self._unlink(path)
+            self.completed.load(self.history_log)
+            self.notify(
+                f"removed {record.get('name', '')}"
+                + (" and its file" if choice == "disk" else " from the list")
+            )
+
+        self.push_screen(DeleteModal(record.get("name", "") or "entry", has_file), chosen)
 
 
 def run_tui(cfg: Config, client) -> int:

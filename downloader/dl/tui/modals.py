@@ -59,6 +59,42 @@ class SpeedLimitModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class DeleteModal(ModalScreen[str | None]):
+    """Dismisses with 'list', 'disk', or None."""
+
+    BINDINGS = [
+        ("escape", "dismiss_none", "cancel"),
+        ("l", "from_list", "from list"),
+        ("d", "from_disk", "from disk"),
+    ]
+
+    def __init__(self, label: str, has_file: bool):
+        super().__init__()
+        self.label = label
+        self.has_file = has_file
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="delete-box"):
+            yield Label(f"Delete {self.label}?")
+            yield Button("Remove from list only  (l)", id="list")
+            if self.has_file:
+                yield Button("Delete file from disk too  (d)", variant="error", id="disk")
+            yield Button("Cancel  (esc)", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id if event.button.id in ("list", "disk") else None)
+
+    def action_from_list(self) -> None:
+        self.dismiss("list")
+
+    def action_from_disk(self) -> None:
+        if self.has_file:
+            self.dismiss("disk")
+
+    def action_dismiss_none(self) -> None:
+        self.dismiss(None)
+
+
 class ConfirmModal(ModalScreen[bool]):
     BINDINGS = [("escape", "dismiss_false", "cancel")]
 

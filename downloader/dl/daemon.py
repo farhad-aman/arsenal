@@ -110,7 +110,6 @@ def aria2_args(cfg: Config, state: Path, port: int, secret: str) -> list[str]:
         f"--max-download-limit={cfg.limits.per_download}",
         f"--save-session={state / 'session'}",
         "--save-session-interval=30",
-        "--force-save=true",
         f"--on-download-complete={complete}",
         f"--on-download-error={error}",
         f"--log={state / 'aria2.log'}",

@@ -101,6 +101,16 @@ def test_full_download_lands_in_the_routed_directory(env, fileserver):
     assert client.tell_status(gid)["status"] == "complete"
 
 
+def test_completed_download_leaves_no_aria2_control_file(env, fileserver):
+    cfg, state = env
+    client = daemon.ensure_running(cfg, state)
+    queue(cfg, client, f"{fileserver}/sample.iso", "sample.iso")
+
+    target = cfg.categories["iso"].dir / "sample.iso"
+    assert wait_for(lambda: target.exists() and target.stat().st_size == len(PAYLOAD))
+    assert wait_for(lambda: not list(target.parent.glob("*.aria2")), timeout=15)
+
+
 def test_hook_writes_a_history_row(env, fileserver):
     cfg, state = env
     client = daemon.ensure_running(cfg, state)

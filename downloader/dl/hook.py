@@ -43,6 +43,17 @@ def build_record(status: dict, mode: str, cfg: Config) -> dict:
     return record
 
 
+def drop_control_file(path: Path) -> bool:
+    """aria2 leaves <file>.aria2 behind on completion in some configurations,
+    and relocating the download would strand it in the old directory."""
+    control = path.with_name(path.name + ".aria2")
+    try:
+        control.unlink()
+        return True
+    except OSError:
+        return False
+
+
 def relocate(path: Path, cfg: Config, url: str) -> Path:
     if not path.exists():
         return path
@@ -119,7 +130,11 @@ def main(argv: list[str] | None = None) -> int:
         status = client.tell_status(gid)
         record = build_record(status, mode, cfg)
         if mode == "complete" and record["path"]:
-            record["path"] = str(relocate(Path(record["path"]), cfg, record["url"]))
+            original = Path(record["path"])
+            drop_control_file(original)
+            final = relocate(original, cfg, record["url"])
+            drop_control_file(final)
+            record["path"] = str(final)
         history.append(record, state / "history.jsonl")
         if cfg.general.notify:
             title = "Download complete" if mode == "complete" else "Download failed"

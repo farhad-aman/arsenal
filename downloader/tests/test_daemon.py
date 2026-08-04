@@ -94,6 +94,11 @@ def test_aria2_args_never_use_stop_with_process(tmp_path, cfg):
     assert not any("stop-with-process" in a for a in daemon.aria2_args(cfg, tmp_path, 6810, "x"))
 
 
+def test_aria2_args_never_force_save(tmp_path, cfg):
+    """--force-save keeps the .aria2 control file after a download completes."""
+    assert not any("force-save" in a for a in daemon.aria2_args(cfg, tmp_path, 6810, "x"))
+
+
 def test_aria2_args_apply_config_limits(tmp_path, cfg):
     args = daemon.aria2_args(cfg, tmp_path, 6810, "x")
     assert "--max-concurrent-downloads=3" in args

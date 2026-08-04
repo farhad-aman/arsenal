@@ -14,6 +14,32 @@ def append(record: dict, path: Path) -> None:
         os.fsync(fh.fileno())
 
 
+def _key(record: dict) -> tuple:
+    return (record.get("ts"), record.get("path"), record.get("name"))
+
+
+def remove_entry(path: Path, record: dict) -> bool:
+    if not path.exists():
+        return False
+    target = _key(record)
+    kept: list[str] = []
+    removed = False
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not removed:
+            try:
+                if _key(json.loads(raw)) == target:
+                    removed = True
+                    continue
+            except json.JSONDecodeError:
+                pass
+        kept.append(raw)
+    if removed:
+        temp = path.with_suffix(path.suffix + ".tmp")
+        temp.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
+        temp.replace(path)
+    return removed
+
+
 def tail(path: Path, n: int) -> list[dict]:
     if n <= 0 or not path.exists():
         return []

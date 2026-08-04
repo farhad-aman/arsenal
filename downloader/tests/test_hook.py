@@ -119,6 +119,49 @@ def test_relocate_returns_original_when_file_is_missing(tmp_path, cfg):
     assert hook.relocate(ghost, cfg, "https://e.com/ghost.mkv") == ghost
 
 
+def test_drop_control_file_removes_the_aria2_sidecar(tmp_path):
+    target = tmp_path / "movie.mkv"
+    target.write_text("data")
+    control = tmp_path / "movie.mkv.aria2"
+    control.write_text("ctl")
+    assert hook.drop_control_file(target) is True
+    assert not control.exists()
+    assert target.exists()
+
+
+def test_drop_control_file_is_false_when_absent(tmp_path):
+    assert hook.drop_control_file(tmp_path / "movie.mkv") is False
+
+
+def test_main_cleans_control_files_at_both_old_and_new_locations(tmp_path, cfg, monkeypatch):
+    src_dir = tmp_path / "incoming"
+    src_dir.mkdir()
+    downloaded = src_dir / "movie.mkv"
+    downloaded.write_text("data")
+    (src_dir / "movie.mkv.aria2").write_text("ctl")
+
+    target_dir = tmp_path / "Movies"
+    cats = dict(cfg.categories)
+    cats["video"] = config.Category("video", target_dir, ("mkv",), "🎬", "#fff")
+    routed = config.Config(cfg.general, cfg.limits, cats, {})
+
+    monkeypatch.setattr(hook, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(hook.config, "load", lambda *a, **k: routed)
+    monkeypatch.setattr(hook, "notify", lambda *a: None)
+    monkeypatch.setattr(hook, "arm_idle_shutdown", lambda *a: False)
+
+    client = FakeClient()
+    client.tell_status = lambda gid: status(
+        files=[{"path": str(downloaded), "uris": [{"uri": "https://e.com/movie.mkv"}]}]
+    )
+    monkeypatch.setattr(hook.daemon, "ensure_running", lambda *a, **k: client)
+
+    assert hook.main(["complete", "g1", "1", str(downloaded)]) == 0
+    assert (target_dir / "movie.mkv").exists()
+    assert not (src_dir / "movie.mkv.aria2").exists()
+    assert not (target_dir / "movie.mkv.aria2").exists()
+
+
 class FakeClient:
     def __init__(self, active=(), waiting=()):
         self._active = list(active)

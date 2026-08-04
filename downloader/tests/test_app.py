@@ -171,6 +171,184 @@ async def test_q_quits(cfg):
     assert app.is_running is False
 
 
+async def test_completed_tab_lists_history_and_is_navigable(cfg, tmp_path, monkeypatch):
+    from dl import history
+    from dl.tui import app as app_module
+
+    log = tmp_path / "history.jsonl"
+    for i in range(3):
+        history.append(
+            {"ts": 1000 + i, "name": f"f{i}.mkv", "bytes": 10, "path": "", "status": "ok"}, log
+        )
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        assert [r["name"] for r in app.completed.rows] == ["f2.mkv", "f1.mkv", "f0.mkv"]
+        assert app.completed.selected["name"] == "f2.mkv"
+        await pilot.press("down")
+        assert app.completed.selected["name"] == "f1.mkv"
+
+
+async def test_open_uses_the_completed_selection_not_the_active_row(cfg, tmp_path, monkeypatch):
+    from dl import history
+    from dl.tui import app as app_module
+
+    real = tmp_path / "done.mkv"
+    real.write_text("data")
+    log = tmp_path / "history.jsonl"
+    history.append(
+        {"ts": 1, "name": "done.mkv", "bytes": 4, "path": str(real), "status": "ok"}, log
+    )
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    opened = []
+    monkeypatch.setattr(app_module.subprocess, "run", lambda cmd, **k: opened.append(cmd))
+
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        await pilot.press("o")
+        assert opened == [["open", str(real)]]
+        await pilot.press("f")
+        assert opened[-1] == ["open", "-R", str(real)]
+
+
+async def test_delete_from_completed_list_only_keeps_the_file(cfg, tmp_path, monkeypatch):
+    from dl import history
+    from dl.tui import app as app_module
+
+    real = tmp_path / "done.mkv"
+    real.write_text("data")
+    log = tmp_path / "history.jsonl"
+    history.append(
+        {"ts": 1, "name": "done.mkv", "bytes": 4, "path": str(real), "status": "ok"}, log
+    )
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+        assert app.completed.rows == []
+        assert real.exists()
+
+
+async def test_delete_from_completed_with_disk_removes_file_and_sidecar(cfg, tmp_path, monkeypatch):
+    from dl import history
+    from dl.tui import app as app_module
+
+    real = tmp_path / "done.mkv"
+    real.write_text("data")
+    sidecar = tmp_path / "done.mkv.aria2"
+    sidecar.write_text("ctl")
+    log = tmp_path / "history.jsonl"
+    history.append(
+        {"ts": 1, "name": "done.mkv", "bytes": 4, "path": str(real), "status": "ok"}, log
+    )
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        assert app.completed.rows == []
+        assert not real.exists()
+        assert not sidecar.exists()
+
+
+async def test_delete_modal_escape_changes_nothing(cfg, tmp_path, monkeypatch):
+    from dl import history
+    from dl.tui import app as app_module
+
+    real = tmp_path / "done.mkv"
+    real.write_text("data")
+    log = tmp_path / "history.jsonl"
+    history.append(
+        {"ts": 1, "name": "done.mkv", "bytes": 4, "path": str(real), "status": "ok"}, log
+    )
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        assert len(app.completed.rows) == 1
+        assert real.exists()
+
+
+async def test_delete_active_with_disk_removes_partial_file(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+
+    partial = tmp_path / "a.iso"
+    partial.write_text("half")
+    (tmp_path / "a.iso.aria2").write_text("ctl")
+
+    client = FakeClient()
+    client.active[0]["files"][0]["path"] = str(partial)
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        assert client.removed == ["g1"]
+        assert not partial.exists()
+        assert not (tmp_path / "a.iso.aria2").exists()
+
+
+async def test_delete_active_list_only_keeps_partial_file(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+
+    partial = tmp_path / "a.iso"
+    partial.write_text("half")
+
+    client = FakeClient()
+    client.active[0]["files"][0]["path"] = str(partial)
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+        assert client.removed == ["g1"]
+        assert partial.exists()
+
+
+async def test_hint_line_changes_with_the_tab(cfg, tmp_path, monkeypatch):
+    from dl.tui import app as app_module
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        assert "tab active" in app.hint_text
+        await pilot.press("tab")
+        assert "pause/resume" in app.hint_text
+
+
 async def test_lost_daemon_sets_disconnected_flag(cfg):
     from dl.rpc import Aria2Unreachable
 
