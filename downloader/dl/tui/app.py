@@ -118,6 +118,27 @@ class DlApp(App):
             return False
         return True
 
+    def reload_config(self, cfg: Config) -> None:
+        """Adopt a freshly read config.
+
+        Only max_concurrent reaches the daemon. The rest of the limits are set
+        per-download at queue time, so pushing them globally would change
+        behaviour for downloads dl did not queue.
+        """
+        was = self.cfg
+        self.cfg = cfg
+        self.theme_data = theme.select(cfg)
+        for widget in (self.status, self.table, self.completed):
+            widget.theme_data = self.theme_data
+        self.table.refresh_view()
+        if cfg.general.max_concurrent != was.general.max_concurrent:
+            try:
+                self.client.change_global_option(
+                    {"max-concurrent-downloads": str(cfg.general.max_concurrent)}
+                )
+            except (Aria2Error, Aria2Unreachable) as exc:
+                self.notify(f"saved, but the daemon did not take it: {exc}", severity="warning")
+
     def _proxy_flags(self, items: list[dict]) -> None:
         """A download's options never change under us, so each gid is asked
         about once — the table refreshes twice a second."""

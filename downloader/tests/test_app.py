@@ -1216,3 +1216,73 @@ async def test_a_job_whose_supervisor_died_stops_claiming_to_run(cfg, tmp_path, 
         assert app.table.rows[0].status == "error"
         assert app.table.rows[0].error
     assert ytjob.read(saved)["status"] == "error"
+
+
+async def test_reload_swaps_the_theme_everywhere(cfg):
+    from dl import config as config_module
+
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        changed = config_module.replace(
+            cfg, general=config_module.replace(cfg.general, theme="ember")
+        )
+        app.reload_config(changed)
+        await pilot.pause()
+        assert app.cfg is changed
+        assert app.theme_data is app.table.theme_data
+        assert app.theme_data is app.status.theme_data
+        assert app.theme_data is app.completed.theme_data
+
+
+async def test_reload_pushes_a_changed_concurrency_to_the_daemon(cfg):
+    from dl import config as config_module
+
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        changed = config_module.replace(
+            cfg, general=config_module.replace(cfg.general, max_concurrent=7)
+        )
+        app.reload_config(changed)
+    assert client.global_options["max-concurrent-downloads"] == "7"
+
+
+async def test_reload_leaves_the_daemon_alone_when_concurrency_is_unchanged(cfg):
+    """The other limits are set per-download at queue time; pushing them
+    globally would change behaviour for downloads dl did not queue."""
+    from dl import config as config_module
+
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        changed = config_module.replace(
+            cfg, limits=config_module.replace(cfg.limits, connections=4)
+        )
+        app.reload_config(changed)
+    assert client.global_options == {}
+
+
+async def test_reload_survives_a_daemon_that_is_gone(cfg):
+    """A settings save must not fail because aria2 is down."""
+    from dl import config as config_module
+    from dl.rpc import Aria2Unreachable
+
+    class Refusing(FakeClient):
+        def change_global_option(self, options):
+            raise Aria2Unreachable("gone")
+
+    client = Refusing()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        changed = config_module.replace(
+            cfg, general=config_module.replace(cfg.general, max_concurrent=9)
+        )
+        app.reload_config(changed)
+        await pilot.pause()
+        assert app.is_running is True
+        assert app.cfg is changed
