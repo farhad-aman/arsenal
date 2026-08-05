@@ -1,6 +1,8 @@
+import re
 import subprocess
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 from . import history, ytjob
@@ -8,6 +10,67 @@ from .config import STATE_DIR, load
 from .hook import notify
 
 POLL = 0.5
+WINDOW = 3.0
+PROBE_TIMEOUT = 60
+
+
+def rate(samples: deque, done: int, now: float | None = None) -> int:
+    """Bytes per second over the last few seconds.
+
+    Measuring one poll against the last reads zero whenever a poll lands
+    between aria2's flushes to disk, which is most of them.
+    """
+    moment = time.monotonic() if now is None else now
+    samples.append((moment, done))
+    while len(samples) > 1 and moment - samples[0][0] > WINDOW:
+        samples.popleft()
+    if len(samples) < 2:
+        return 0
+    span = moment - samples[0][0]
+    if span <= 0:
+        return 0
+    return max(int((done - samples[0][1]) / span), 0)
+
+
+_UNITS = {"B": 1, "K": 1024, "M": 1024**2, "G": 1024**3}
+_DL = re.compile(r"DL:\s*([0-9.]+)\s*([BKMG])i?B?", re.IGNORECASE)
+
+
+def reported_speed(log: Path, tail: int = 4000) -> int:
+    """aria2's own rate, from the summary lines it prints into the log.
+
+    Deriving it from file growth reads as bursts, because aria2 flushes to disk
+    in chunks rather than continuously.
+    """
+    try:
+        with open(log, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(fh.tell() - tail, 0))
+            text = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return -1
+    found = _DL.findall(text)
+    if not found:
+        return -1
+    amount, unit = found[-1]
+    try:
+        return int(float(amount) * _UNITS[unit.upper()])
+    except (ValueError, KeyError):
+        return -1
+
+
+def probe(job: dict) -> tuple[str, int]:
+    try:
+        done = subprocess.run(
+            ytjob.probe_command(job),
+            capture_output=True,
+            text=True,
+            timeout=PROBE_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "", 0
+    return ytjob.parse_probe(done.stdout)
 
 
 def _update(state: Path, job: dict, **fields) -> dict:
@@ -101,6 +164,10 @@ def main(argv: list[str]) -> int:
     directory = Path(job["dir"])
     directory.mkdir(parents=True, exist_ok=True)
 
+    title, total = probe(job)
+    if title or total:
+        _update(state, job, title=title or job.get("title", ""), total=total)
+
     log = state / f"{job['id']}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -118,20 +185,22 @@ def main(argv: list[str]) -> int:
 
     _update(state, job, status="active", pid=proc.pid)
     scratch = ytjob.scratch_dir(state, job)
-    last, moved_at = 0, time.monotonic()
+    samples: deque[tuple[float, int]] = deque()
     while proc.poll() is None:
         time.sleep(POLL)
         done = ytjob.bytes_on_disk(scratch)
-        now = time.monotonic()
-        speed = int((done - last) / max(now - moved_at, 0.001)) if done > last else 0
-        if done != last:
-            last, moved_at = done, now
         current = ytjob.read(state / f"{job['id']}.json")
         if current.get("status") == "cancelled":
             proc.terminate()
             return 0
         job.update(current)
-        _update(state, job, done=done, speed=max(speed, 0))
+        measured = reported_speed(log)
+        _update(
+            state,
+            job,
+            done=done,
+            speed=measured if measured >= 0 else rate(samples, done),
+        )
 
     finalize(state, job, proc.returncode, cfg)
     return 0

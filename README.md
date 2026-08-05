@@ -192,9 +192,18 @@ All nodes land in **one** config behind a sing-box `urltest` group — it probes
 every 5m, routes through the fastest, and fails over automatically. No need to pick a
 node by hand:
 ```bash
-vpn -s gorbe    # proxy on :2080, auto-selected node
+vpn -s gorbe    # proxy on :2080, auto-selected node (fastest, auto-failover)
 vpn -t gorbe    # TUN mode, same auto-selection
 ```
+
+**Pick one node by hand** instead of auto — add `P` to the flag:
+```bash
+vpn -sP gorbe   # fzf list of all nodes → route everything through the one you pick
+vpn -tP gorbe   # same, in TUN mode
+```
+`P` drops you into an fzf picker of every node in the config; the chosen node handles
+all traffic for that session (no urltest). Single-node configs skip the picker. If the
+node you pick turns out dead, just re-run without `P` for auto-select.
 
 `xhttp`, `kcp`, and `quic` nodes are skipped — sing-box has no such transports (they're
 Xray-only). Reality nodes missing a public key are skipped too. The import prints the

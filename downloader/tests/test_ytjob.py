@@ -140,6 +140,48 @@ def test_progress_of_a_missing_directory_is_zero(tmp_path):
     assert ytjob.bytes_on_disk(tmp_path / "gone") == 0
 
 
+def test_probe_only_simulates(job):
+    argv = ytjob.probe_command(job)
+    assert "--simulate" in argv
+    assert argv[0] == "yt-dlp"
+    assert argv[-1] == job["url"]
+
+
+def test_probe_asks_for_the_title_and_the_size(job):
+    argv = ytjob.probe_command(job)
+    printed = [argv[i + 1] for i, a in enumerate(argv) if a == "--print"]
+    assert printed == ["%(title)s", "%(filesize,filesize_approx)s"]
+
+
+def test_probe_measures_the_format_that_will_be_fetched(tmp_path):
+    picked = Choices("480", "best", "off", "en", "mp4")
+    job = ytjob.new_job("https://youtu.be/a", tmp_path, picked)
+    argv = ytjob.probe_command(job)
+    assert "height<=480" in argv[argv.index("-f") + 1]
+
+
+def test_probe_carries_the_proxy_and_cookies(tmp_path):
+    job = ytjob.new_job(
+        "https://youtu.be/a", tmp_path, DEFAULTS, proxy="http://p:1", cookies_from="chrome"
+    )
+    argv = ytjob.probe_command(job)
+    assert argv[argv.index("--proxy") + 1] == "http://p:1"
+    assert argv[argv.index("--cookies-from-browser") + 1] == "chrome"
+
+
+def test_parse_probe_reads_the_title_and_total():
+    assert ytjob.parse_probe("Some Video\n18206810\n") == ("Some Video", 18206810)
+
+
+def test_parse_probe_survives_an_unknown_size():
+    """yt-dlp prints NA when it cannot work the size out."""
+    assert ytjob.parse_probe("Some Video\nNA\n") == ("Some Video", 0)
+
+
+def test_parse_probe_of_nothing_is_empty():
+    assert ytjob.parse_probe("") == ("", 0)
+
+
 def test_produced_file_comes_from_what_yt_dlp_reported(tmp_path, job):
     landed = tmp_path / "clip.mp4"
     landed.write_bytes(b"x" * 900)

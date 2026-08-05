@@ -1,4 +1,74 @@
+from collections import deque
+
 from dl import ytrun
+
+
+def test_rate_needs_two_samples_before_it_claims_anything():
+    samples = deque()
+    assert ytrun.rate(samples, 0, now=0.0) == 0
+
+
+def test_rate_measures_across_the_window_not_one_poll():
+    """One poll against the last reads zero whenever a poll lands between
+    aria2's flushes, which is most of them."""
+    samples = deque()
+    ytrun.rate(samples, 0, now=0.0)
+    ytrun.rate(samples, 0, now=0.5)          # flush has not landed yet
+    got = ytrun.rate(samples, 3_000_000, now=1.0)
+    assert got == 3_000_000
+
+
+def test_rate_forgets_samples_older_than_the_window():
+    samples = deque()
+    ytrun.rate(samples, 0, now=0.0)
+    ytrun.rate(samples, 1_000_000, now=10.0)
+    ytrun.rate(samples, 2_000_000, now=11.0)
+    assert samples[0][0] >= 10.0 - ytrun.WINDOW
+
+
+def test_rate_of_a_stalled_download_decays_to_zero():
+    samples = deque()
+    ytrun.rate(samples, 5_000_000, now=0.0)
+    for tick in range(1, 12):
+        got = ytrun.rate(samples, 5_000_000, now=float(tick))
+    assert got == 0
+
+
+def test_rate_never_goes_negative_if_bytes_vanish():
+    samples = deque()
+    ytrun.rate(samples, 9_000_000, now=0.0)
+    assert ytrun.rate(samples, 1_000, now=1.0) == 0
+
+
+def test_reported_speed_reads_aria2s_own_rate(tmp_path):
+    log = tmp_path / "job.log"
+    log.write_text("[#853350 13MiB/14MiB(91%) CN:3 DL:1.4MiB]\n")
+    assert ytrun.reported_speed(log) == int(1.4 * 1024 * 1024)
+
+
+def test_reported_speed_takes_the_most_recent_line(tmp_path):
+    log = tmp_path / "job.log"
+    log.write_text(
+        "[#1 1MiB/14MiB(7%) CN:3 DL:9.0MiB]\n"
+        "[#1 8MiB/14MiB(57%) CN:3 DL:2.5MiB]\n"
+    )
+    assert ytrun.reported_speed(log) == int(2.5 * 1024 * 1024)
+
+
+def test_reported_speed_handles_kilobytes(tmp_path):
+    log = tmp_path / "job.log"
+    log.write_text("[#1 1MiB/14MiB(7%) CN:1 DL:512KiB]\n")
+    assert ytrun.reported_speed(log) == 512 * 1024
+
+
+def test_reported_speed_is_minus_one_when_aria2_said_nothing(tmp_path):
+    log = tmp_path / "job.log"
+    log.write_text("[youtube] Extracting URL\n")
+    assert ytrun.reported_speed(log) == -1
+
+
+def test_reported_speed_of_a_missing_log_is_minus_one(tmp_path):
+    assert ytrun.reported_speed(tmp_path / "nope.log") == -1
 
 
 def test_last_error_prefers_the_error_line(tmp_path):

@@ -95,6 +95,37 @@ def command(job: dict, state: Path) -> list[str]:
     return argv
 
 
+def probe_command(job: dict) -> list[str]:
+    """Ask yt-dlp what this will be before fetching it.
+
+    Without a total there is no percentage and no bar, and the row shows a URL
+    instead of a title until the moment it finishes.
+    """
+    argv = ["yt-dlp", "--no-warnings", "--simulate", "--no-playlist"]
+    if job.get("proxy"):
+        argv += ["--proxy", job["proxy"]]
+    if job.get("cookies_from"):
+        argv += ["--cookies-from-browser", job["cookies_from"]]
+    argv += ["-f", build_args(choices_of(job))[1]]
+    argv += ["--print", "%(title)s", "--print", "%(filesize,filesize_approx)s"]
+    argv.append(job["url"])
+    return argv
+
+
+def parse_probe(output: str) -> tuple[str, int]:
+    """Title and total bytes from probe_command's two printed lines."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        return "", 0
+    title = lines[0]
+    total = 0
+    for line in lines[1:]:
+        if line.isdigit():
+            total = int(line)
+            break
+    return title, total
+
+
 def produced_file(state: Path, job: dict) -> Path | None:
     marker = result_marker(state, job)
     try:

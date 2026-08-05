@@ -70,6 +70,8 @@ def row_from_job(job: dict, cfg: Config) -> Row:
     """A yt-dlp download rendered with the same shape as an aria2 one."""
     landed = Path(job.get("file") or "")
     name = landed.name or job.get("title") or job.get("url", "")
+    if not landed.name and job.get("title"):
+        name = f"{job['title']}.{job.get('choices', {}).get('container', 'mp4')}"
     done = int(job.get("done", 0) or 0)
     total = int(job.get("total", 0) or 0)
     speed = int(job.get("speed", 0) or 0)

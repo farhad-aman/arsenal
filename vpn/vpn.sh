@@ -12,6 +12,8 @@
 #   vpn -t [NAME]                  sing-box TUN mode — per-app routing
 #                                  (apps in ~/singbox/tun_apps.txt → proxy,
 #                                   everything else → direct)
+#   vpn -sP [NAME] / -tP [NAME]    add P to pick ONE node (fzf) from a multi-node
+#                                  subscription config, instead of urltest auto
 #   vpn -e, --edit                 interactively edit the TUN app list (fzf)
 #   vpn -c, --check                test every config, list working ones + latency
 #   vpn -a URL [NAME]              import a subscription -> one config, all nodes
@@ -257,7 +259,7 @@ FORTI_LOG=/tmp/forti.log
 SINGBOX_LOG=/tmp/singbox.log
 
 # ── Parse flags ───────────────────────────────────────────────
-RUN_O=0; RUN_F=0; RUN_S=0; RUN_T=0
+RUN_O=0; RUN_F=0; RUN_S=0; RUN_T=0; PICK=0
 SB_CONFIG_ARG=""
 
 if [[ $# -eq 0 ]]; then
@@ -269,6 +271,7 @@ else
     [[ "$LETTERS" == *f* ]] && RUN_F=1
     [[ "$LETTERS" == *s* ]] && RUN_S=1
     [[ "$LETTERS" == *t* ]] && RUN_T=1
+    [[ "$LETTERS" == *P* ]] && PICK=1   # pick one node instead of urltest auto
     [[ $RUN_T -eq 1 ]] && RUN_S=1   # TUN mode implies sing-box
 
     if [[ $RUN_S -eq 1 && -n "$2" ]]; then
@@ -286,6 +289,7 @@ else
         echo "  -s NAME     sing-box with NAME.json"
         echo "  -t          sing-box TUN mode: per-app routing via ~/singbox/tun_apps.txt"
         echo "  -t NAME     TUN mode with NAME.json"
+        echo "  -sP / -tP   pick one node (fzf) from a subscription config, not urltest auto"
         exit 0
     fi
 fi
@@ -303,6 +307,40 @@ if [[ $RUN_S -eq 1 ]]; then
         SINGBOX_CONFIG="${SINGBOX_DIR}/${CHOSEN}"
     fi
     log "sing-box config: $(basename "$SINGBOX_CONFIG")"
+
+    # Pick one node manually (fzf) instead of urltest auto-select. Rewrites a
+    # temp config keeping only the chosen node (first, so TUN tags it "proxy")
+    # + direct, with route.final -> chosen. Skipped for single-node configs.
+    if [[ $PICK -eq 1 ]]; then
+        SB_PICK_TMP=/tmp/singbox_pick.json
+        NODE_TAGS=$(python3 -c '
+import json, sys
+c = json.load(open(sys.argv[1]))
+for o in c.get("outbounds", []):
+    if o.get("type") not in ("urltest", "selector", "direct", "block", "dns"):
+        print(o.get("tag", ""))
+' "$SINGBOX_CONFIG")
+        NCOUNT=$(echo "$NODE_TAGS" | grep -c .)
+        if [[ "$NCOUNT" -le 1 ]]; then
+            log "  Only one node in this config — nothing to pick."
+        else
+            PICKED_TAG=$(echo "$NODE_TAGS" | fzf --prompt="pick node ($NCOUNT) > " \
+                --height=70% --border --no-sort --header="route ALL traffic through one node")
+            [[ -z "$PICKED_TAG" ]] && { echo "No node picked."; exit 1; }
+            python3 -c '
+import json, sys
+c = json.load(open(sys.argv[1])); tag = sys.argv[2]
+obs = c.get("outbounds", [])
+chosen  = [o for o in obs if o.get("tag") == tag]
+special = [o for o in obs if o.get("type") in ("direct", "block", "dns")]
+c["outbounds"] = chosen + special
+c.setdefault("route", {})["final"] = tag
+json.dump(c, open(sys.argv[3], "w"), indent=2)
+' "$SINGBOX_CONFIG" "$PICKED_TAG" "$SB_PICK_TMP"
+            SINGBOX_CONFIG="$SB_PICK_TMP"
+            log "  Node: ${GREEN}${PICKED_TAG}${RESET} — all traffic routed through it."
+        fi
+    fi
 fi
 
 TOTAL=$(( RUN_O + RUN_F + RUN_S ))
