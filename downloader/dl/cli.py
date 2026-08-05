@@ -158,6 +158,61 @@ def cmd_ls(cfg: Config, client, use_color: bool) -> int:
     return 0
 
 
+HISTORY_DEFAULT = 20
+
+
+def history_line(record: dict, cfg: Config) -> str:
+    """One finished download, as a line that sorts and greps.
+
+    Only the leading columns are padded. Names here are as often Persian as
+    ASCII, and padding a string of double-width or right-to-left characters
+    lands the rest of the line somewhere different on every row.
+    """
+    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(int(record.get("ts", 0) or 0)))
+    ok = record.get("status") == "ok"
+    state = "ok   " if ok else "error"
+    size = human_bytes(int(record.get("bytes", 0) or 0))
+    category = record.get("category", "") or ""
+    name = record.get("name", "") or "(unnamed)"
+    line = f"{when}  {state}  {size:>10}  {category:<8}  {name}"
+    where = Path(record.get("path", "") or "").parent
+    if str(where) not in ("", "."):
+        line += f"  →  {where}"
+    if record.get("proxy"):
+        line += "  [proxy]" if cfg.general.ascii_icons else "  🌐"
+    if not ok and record.get("error"):
+        line += f"  — {record['error']}"
+    return line
+
+
+def cmd_history(cfg: Config, log: Path, args: list[str]) -> int:
+    import json as _json
+
+    wanted = [a for a in args if not a.startswith("-")]
+    count = HISTORY_DEFAULT
+    if wanted:
+        if not wanted[0].isdigit():
+            print(f"dl: history takes a number of entries, not {wanted[0]!r}", file=sys.stderr)
+            return 1
+        count = int(wanted[0])
+
+    from . import history
+
+    # Filtering happens after the read, so `--failed 5` means five failures
+    # rather than however many appear in the last five downloads.
+    records = history.tail(log, max(count * 20, count) if "--failed" in args else count)
+    if "--failed" in args:
+        records = [r for r in records if r.get("status") != "ok"]
+    records = records[::-1][:count]
+
+    if not records:
+        print("  nothing in the download history yet")
+        return 0
+    for record in records:
+        print(_json.dumps(record, ensure_ascii=False) if "--json" in args else history_line(record, cfg))
+    return 0
+
+
 def _gids(client, source: str) -> list[str]:
     if source == "active":
         return [i["gid"] for i in client.tell_active()]

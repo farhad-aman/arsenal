@@ -1,4 +1,6 @@
 import io
+import json
+import re
 
 import pytest
 
@@ -518,3 +520,108 @@ def test_ls_survives_a_daemon_that_will_not_say(sandbox_cfg, capsys):
     client.active = [proxied_status()]
     assert cli.cmd_ls(sandbox_cfg, client, use_color=False) == 0
     assert "a.iso" in capsys.readouterr().out
+
+
+def hist(**over):
+    base = {
+        "ts": 1785942378,
+        "name": "ubuntu.iso",
+        "bytes": 6127219712,
+        "seconds": 683,
+        "path": "/Users/x/Downloads/ISO/ubuntu.iso",
+        "category": "iso",
+        "url": "https://e.com/ubuntu.iso",
+        "status": "ok",
+        "proxy": False,
+    }
+    base.update(over)
+    return base
+
+
+def write_history(tmp_path, records):
+    from dl import history
+
+    log = tmp_path / "history.jsonl"
+    for record in records:
+        history.append(record, log)
+    return log
+
+
+def test_history_of_an_empty_log_says_so(sandbox_cfg, tmp_path, capsys):
+    assert cli.cmd_history(sandbox_cfg, tmp_path / "nope.jsonl", []) == 0
+    assert "nothing" in capsys.readouterr().out.lower()
+
+
+def test_history_shows_name_size_and_where_it_landed(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist()])
+    cli.cmd_history(sandbox_cfg, log, [])
+    out = capsys.readouterr().out
+    assert "ubuntu.iso" in out
+    assert "5.7 GB" in out
+    assert "/Users/x/Downloads/ISO" in out
+    assert "iso" in out
+
+
+def test_history_lists_newest_first(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist(name="old.iso", ts=1), hist(name="new.iso", ts=2)])
+    cli.cmd_history(sandbox_cfg, log, [])
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert "new.iso" in lines[0]
+    assert "old.iso" in lines[1]
+
+
+def test_history_dates_are_sortable_and_greppable(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist()])
+    cli.cmd_history(sandbox_cfg, log, [])
+    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}", capsys.readouterr().out)
+
+
+def test_history_marks_a_failure_and_says_why(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist(status="error", error="HTTP 403", path="")])
+    cli.cmd_history(sandbox_cfg, log, [])
+    out = capsys.readouterr().out
+    assert "HTTP 403" in out
+
+
+def test_history_can_show_only_failures(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist(name="fine.iso"), hist(name="broke.iso", status="error")])
+    cli.cmd_history(sandbox_cfg, log, ["--failed"])
+    out = capsys.readouterr().out
+    assert "broke.iso" in out
+    assert "fine.iso" not in out
+
+
+def test_history_takes_a_count(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist(name=f"f{i}.iso", ts=i) for i in range(10)])
+    cli.cmd_history(sandbox_cfg, log, ["3"])
+    assert len(capsys.readouterr().out.strip().splitlines()) == 3
+
+
+def test_history_json_emits_the_raw_records(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist()])
+    cli.cmd_history(sandbox_cfg, log, ["--json"])
+    parsed = json.loads(capsys.readouterr().out.strip())
+    assert parsed["url"] == "https://e.com/ubuntu.iso"
+
+
+def test_history_badges_a_proxied_download(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist(proxy=True)])
+    cli.cmd_history(sandbox_cfg, log, [])
+    assert "🌐" in capsys.readouterr().out
+
+
+def test_history_emits_no_escape_codes(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist(), hist(status="error", error="boom")])
+    cli.cmd_history(sandbox_cfg, log, [])
+    assert "\x1b[" not in capsys.readouterr().out
+
+
+def test_history_survives_a_record_missing_everything(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [{"ts": 1, "status": "ok"}])
+    assert cli.cmd_history(sandbox_cfg, log, []) == 0
+    assert capsys.readouterr().out.strip()
+
+
+def test_history_rejects_a_count_that_is_not_a_number(sandbox_cfg, tmp_path, capsys):
+    log = write_history(tmp_path, [hist()])
+    assert cli.cmd_history(sandbox_cfg, log, ["banana"]) == 1

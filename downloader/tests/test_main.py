@@ -293,3 +293,25 @@ def test_a_bad_url_is_rejected_before_the_picker_opens(monkeypatch, tmp_path, ca
     monkeypatch.setattr(cli, "cmd_add", lambda *a, **k: (1, []))
     assert entry.main(["not-a-url"]) == 1
     assert calls == []
+
+
+def test_history_never_starts_the_daemon(tmp_path, monkeypatch, capsys):
+    """Printing the past has nothing to ask aria2, and waiting on a daemon
+    start would be a slow surprise for a read-only command."""
+    from dl import config as config_module
+
+    started = []
+    monkeypatch.setattr(entry.daemon, "ensure_running", lambda *a, **k: started.append(1))
+    monkeypatch.setattr(entry.config, "STATE_DIR", tmp_path, raising=False)
+    monkeypatch.setattr(config_module, "STATE_DIR", tmp_path, raising=False)
+
+    assert entry.main(["history"]) == 0
+    assert started == []
+
+
+def test_history_is_a_known_subcommand():
+    assert "history" in entry.SUBCOMMANDS
+
+
+def test_usage_mentions_history():
+    assert "dl history" in entry.USAGE

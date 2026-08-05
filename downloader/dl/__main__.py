@@ -18,12 +18,13 @@ dl — download manager
   dl                       open the TUI
 
   dl ls                    list downloads
+  dl history [n]           list finished downloads (--failed, --json)
   dl pause <gid|all>       dl resume <gid|all>      dl rm <gid>
   dl watch                 queue URLs as you copy them
   dl kill                  stop the daemon
 """
 
-SUBCOMMANDS = {"ls", "pause", "resume", "rm", "watch", "kill", "help"}
+SUBCOMMANDS = {"ls", "history", "pause", "resume", "rm", "watch", "kill", "help"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,6 +89,11 @@ def _run(args: list[str]) -> int:
     command = args[0] if args and args[0] in SUBCOMMANDS else None
     if command is None:
         urls += [a for a in args if not a.startswith("-")]
+
+    if command == "history":
+        # Reading a file needs no daemon, and starting one to print it would be
+        # a slow surprise for a command that only looks at the past.
+        return cli.cmd_history(cfg, config.STATE_DIR / "history.jsonl", args[1:])
 
     try:
         client = daemon.ensure_running(cfg)

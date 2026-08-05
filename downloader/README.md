@@ -35,6 +35,7 @@ dl --no-preview <url>    queue and exit without the live preview
 dl                       open the TUI
 
 dl ls                    list downloads
+dl history [n]           list finished downloads (--failed, --json)
 dl pause <gid|all>       dl resume <gid|all>      dl rm <gid>
 dl watch                 queue URLs as you copy them
 dl kill                  stop the daemon
@@ -72,6 +73,20 @@ Completed tab are dashboard-only — run `dl` for those.
 
 `dl ls` prints fixed columns with no colour when piped, so `dl ls | grep paused`
 works.
+
+`dl history` prints what has already finished, newest first, with the folder each
+file landed in:
+
+```
+2026-08-05 15:10  error       0 B  video   Furious.S01E01.480p.mkv  — HTTP 410 Gone
+2026-08-05 12:23  ok         17 MB  video   کلیپ.mp4  →  ~/Downloads/Movies  🌐
+2026-08-05 06:50  ok        5.7 GB  iso     ubuntu-24.04.iso  →  ~/Downloads/ISO
+```
+
+`--failed` keeps only what broke, `--json` emits the raw records for `jq`, and a
+bare number caps how many. Only the leading columns are padded — padding a name
+of double-width or right-to-left characters would land the rest of the line
+somewhere different on every row. It reads a file, so it never starts the daemon.
 
 `dl watch` catches URLs as you copy them, through the same routing, proxy and
 duplicate rules as everything else. Nothing there can prompt, so a duplicate is
