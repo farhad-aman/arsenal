@@ -73,6 +73,11 @@ Completed tab are dashboard-only — run `dl` for those.
 `dl ls` prints fixed columns with no colour when piped, so `dl ls | grep paused`
 works.
 
+`dl watch` catches URLs as you copy them, through the same routing, proxy and
+duplicate rules as everything else. Nothing there can prompt, so a duplicate is
+left alone with a note rather than guessed at, and a YouTube link is taken at
+best quality — run `dl <url>` when you want the choice.
+
 Magnet links and `.torrent` URLs work anywhere a URL does.
 
 ## Duplicates
