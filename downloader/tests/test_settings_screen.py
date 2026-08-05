@@ -4,6 +4,7 @@ from textual.widgets import Input, Static
 
 from dl import config, settings
 from dl.tui.settings import (
+    CategoriesScreen,
     FormScreen,
     HeadersScreen,
     ProxyScreen,
@@ -458,6 +459,94 @@ async def test_escape_returns_nothing_from_the_headers_screen(cfg):
     async with app.run_test() as pilot:
         await pilot.pause()
         screen.add_rule("e.com | X | y")
+        await pilot.press("escape")
+        await pilot.pause()
+    assert app.result == {}
+
+
+async def test_every_category_is_listed(cfg):
+    screen = CategoriesScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert len(screen.names) == len(cfg.categories)
+        assert "video" in screen.body
+
+
+async def test_a_category_can_be_added(cfg):
+    screen = CategoriesScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_category("books")
+        await pilot.pause()
+        assert "books" in screen.names
+
+
+async def test_a_duplicate_category_is_refused(cfg):
+    screen = CategoriesScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_category("video")
+        await pilot.pause()
+        assert screen.names.count("video") == 1
+        assert screen.error
+
+
+async def test_a_category_can_be_deleted(cfg):
+    """The built-in eight have no special status: config.load() already merges
+    user categories over the defaults."""
+    screen = CategoriesScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        before = len(screen.names)
+        screen.cursor = 0
+        screen.delete_selected()
+        await pilot.pause()
+        assert len(screen.names) == before - 1
+
+
+async def test_extensions_are_edited_as_a_comma_separated_string(cfg):
+    """A list inside a record inside a list. One text field beats a third
+    level of drilling for values that are three letters long."""
+    screen = CategoriesScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert screen.shown_ext("video") == ", ".join(cfg.categories["video"].ext)
+
+
+async def test_saving_returns_every_category_with_split_extensions(cfg):
+    screen = CategoriesScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.apply_edit("video", {("ext",): "mkv, mp4"})
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+    assert app.result[("categories",)]["video"]["ext"] == ["mkv", "mp4"]
+
+
+async def test_editing_a_category_opens_a_form_with_its_values(cfg):
+    screen = CategoriesScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.cursor = screen.names.index("video")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert type(app.screen).__name__ == "FormScreen"
+        assert app.screen.values[("icon",)] == cfg.categories["video"].icon
+
+
+async def test_escape_returns_nothing_from_the_categories_screen(cfg):
+    screen = CategoriesScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_category("books")
         await pilot.press("escape")
         await pilot.pause()
     assert app.result == {}

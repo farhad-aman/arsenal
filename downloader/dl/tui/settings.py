@@ -272,6 +272,8 @@ class SettingsMenuScreen(ModalScreen[None]):
             self.app.push_screen(ProxyScreen(self.cfg), self._saved)
         if name == "Headers":
             self.app.push_screen(HeadersScreen(self.cfg), self._saved)
+        if name == "Categories":
+            self.app.push_screen(CategoriesScreen(self.cfg), self._saved)
 
     def _saved(self, changes: dict | None) -> None:
         if changes:
@@ -574,3 +576,175 @@ class HeadersScreen(ModalScreen[dict]):
         for host, key, value in self.rules:
             nested.setdefault(host, {})[key] = value
         self.dismiss({("headers",): nested})
+
+
+CATEGORY_HINT = "↑↓ move   a add   d delete   ⏎ edit   ^S save   esc cancel"
+
+
+class CategoriesScreen(ModalScreen[dict]):
+    """The categories that decide where a file lands.
+
+    The built-in eight have no special status: config.load() already merges
+    user categories over the defaults, so one can be edited or removed like
+    any other.
+    """
+
+    AUTO_FOCUS = ""
+
+    BINDINGS = [
+        ("escape", "cancel", "cancel"),
+        Binding("up", "previous", "up", priority=True),
+        Binding("down", "next", "down", priority=True),
+        Binding("a", "add", "add", priority=True),
+        Binding("d", "delete", "delete", priority=True),
+        Binding("enter", "edit", "edit", priority=True),
+        Binding("ctrl+s", "save", "save", priority=True),
+    ]
+
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+        self.entries = {
+            name: {
+                "dir": str(category.dir),
+                "ext": list(category.ext),
+                "icon": category.icon,
+                "hue": category.hue,
+            }
+            for name, category in cfg.categories.items()
+        }
+        self.cursor = 0
+        self.adding = False
+        self.body = ""
+        self.error = ""
+
+    @property
+    def names(self) -> list[str]:
+        return list(self.entries)
+
+    def shown_ext(self, name: str) -> str:
+        return ", ".join(self.entries[name]["ext"])
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="settings-box"):
+            yield Static("  ⚙  Categories", id="settings-head")
+            yield Static("", id="settings-list")
+            yield Input("", id="settings-input", placeholder="new category name")
+            yield Static("", id="settings-error")
+            yield Static(CATEGORY_HINT, id="settings-hint")
+
+    def on_mount(self) -> None:
+        self.query_one("#settings-input", Input).display = False
+        self._repaint()
+
+    def _repaint(self) -> None:
+        rows = []
+        for index, name in enumerate(self.names):
+            marker = "▌" if index == self.cursor else " "
+            entry = self.entries[name]
+            rows.append(f"{marker} {entry['icon']} {name:<12} {entry['dir']}")
+        self.body = "\n".join(rows)
+        self.query_one("#settings-list", Static).update(self.body)
+        self.query_one("#settings-error", Static).update(self.error)
+
+    def add_category(self, raw: str) -> None:
+        name = raw.strip().lower()
+        if not name:
+            self.error = "  ⚠  a category needs a name"
+            self._repaint()
+            return
+        if name in self.entries:
+            self.error = f"  ⚠  {name} already exists"
+            self._repaint()
+            return
+        self.entries[name] = {
+            "dir": str(self.cfg.general.default_dir / name),
+            "ext": [],
+            "icon": "📥",
+            "hue": "#8a8a8a",
+        }
+        self.cursor = len(self.entries) - 1
+        self.error = ""
+        self._repaint()
+
+    def delete_selected(self) -> None:
+        if not self.entries:
+            return
+        del self.entries[self.names[self.cursor]]
+        self.cursor = max(0, min(self.cursor, len(self.entries) - 1))
+        self._repaint()
+
+    def apply_edit(self, name: str, changes: dict) -> None:
+        for path, value in changes.items():
+            key = path[-1]
+            self.entries[name][key] = (
+                [piece.strip() for piece in str(value).split(",") if piece.strip()]
+                if key == "ext"
+                else value
+            )
+        self._repaint()
+
+    def _close_editor(self) -> None:
+        self.adding = False
+        box = self.query_one("#settings-input", Input)
+        box.display = False
+        self.set_focus(None)
+        self._repaint()
+
+    def action_add(self) -> None:
+        if self.adding:
+            return
+        self.adding = True
+        box = self.query_one("#settings-input", Input)
+        box.display = True
+        box.value = ""
+        box.focus()
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        self.add_category(self.query_one("#settings-input", Input).value)
+        if not self.error:
+            self._close_editor()
+
+    def action_delete(self) -> None:
+        if not self.adding:
+            self.delete_selected()
+
+    def action_edit(self) -> None:
+        if self.adding or not self.entries:
+            return
+        name = self.names[self.cursor]
+        entry = self.entries[name]
+        # The form reads its starting values from ATTRIBUTE, which only knows
+        # top-level settings, so a category's four are seeded directly.
+        screen = FormScreen(f"Category — {name}", settings.CATEGORY_FIELDS, self.cfg)
+        screen.values = {
+            ("dir",): entry["dir"],
+            ("ext",): ", ".join(entry["ext"]),
+            ("icon",): entry["icon"],
+            ("hue",): entry["hue"],
+        }
+        screen.original = dict(screen.values)
+        self.app.push_screen(screen, lambda changes: self.apply_edit(name, changes or {}))
+
+    def _move(self, delta: int) -> None:
+        if self.adding or not self.entries:
+            return
+        self.cursor = (self.cursor + delta) % len(self.entries)
+        self._repaint()
+
+    def action_next(self) -> None:
+        self._move(1)
+
+    def action_previous(self) -> None:
+        self._move(-1)
+
+    def action_cancel(self) -> None:
+        if self.adding:
+            self._close_editor()
+            return
+        self.dismiss({})
+
+    def action_save(self) -> None:
+        if self.adding:
+            return
+        self.dismiss({("categories",): {name: dict(entry) for name, entry in self.entries.items()}})
