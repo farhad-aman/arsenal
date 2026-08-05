@@ -59,6 +59,7 @@ class Config:
     categories: dict[str, Category]
     domains: dict[str, str]
     proxy: str = DEFAULT_PROXY
+    proxy_domains: tuple[str, ...] = ()
     cookies_from: str = DEFAULT_COOKIES
 
 
@@ -178,6 +179,9 @@ def load(path: Path | None = None) -> Config:
             categories=_categories_from(raw.get("categories", {})),
             domains={str(k).lower(): str(v) for k, v in raw.get("domains", DEFAULT_DOMAINS).items()},
             proxy=str(raw.get("proxy", {}).get("url", DEFAULT_PROXY)),
+            proxy_domains=tuple(
+                str(d).lower() for d in raw.get("proxy", {}).get("domains", [])
+            ),
             cookies_from=str(raw.get("youtube", {}).get("cookies_from", DEFAULT_COOKIES)),
         )
     except (tomllib.TOMLDecodeError, ValueError, TypeError, AttributeError, KeyError) as exc:
@@ -196,6 +200,11 @@ notify          = true
 
 [proxy]
 url = "http://127.0.0.1:2080"
+# Hosts always downloaded through it, so -p is only needed for one-offs. A bare
+# name covers its subdomains too — a blocked service is blocked at every
+# hostname it answers on. "*." matches subdomains only.
+domains = []
+# domains = ["youtube.com", "googlevideo.com"]
 
 [youtube]
 # YouTube refuses anonymous requests ("confirm you're not a bot"), so yt-dlp

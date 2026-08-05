@@ -169,10 +169,29 @@ Mouse works too: click to select and scroll.
 | `general.theme` | `"aurora"` | `aurora`, `ember`, `matrix`, `mono` |
 | `general.ascii_icons` | `false` | replace emoji with 2-letter tags |
 | `general.notify` | `true` | macOS banner on completion |
+| `proxy.url` | `http://127.0.0.1:2080` | where `-p` and `proxy.domains` send traffic |
+| `proxy.domains` | `[]` | hosts always downloaded through the proxy |
 | `limits.per_download` | `"off"` | default cap per download, e.g. `"500K"` |
 | `limits.connections` | `16` | connections per server |
 | `limits.splits` | `16` | segments per file |
 | `limits.min_split` | `"1M"` | smallest segment |
+
+Listing a host under `proxy.domains` means every download from it goes through
+the proxy, so `-p` is only needed for one-offs:
+
+```toml
+[proxy]
+url     = "http://127.0.0.1:2080"
+domains = ["youtube.com", "googlevideo.com"]
+```
+
+A bare name covers its subdomains as well — a service you cannot reach is
+unreachable at every hostname it answers on. `*.` matches subdomains only,
+as it does under `[domains]`.
+
+Because the rule travels with the URL rather than the command line, retries,
+the dashboard's add box and `dl watch` all proxy the same downloads `dl -p`
+would.
 
 Add a category in three lines — the icon and colour flow into the TUI
 automatically:

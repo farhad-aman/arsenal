@@ -267,7 +267,12 @@ class DlApp(App):
         resolution = routing.resolve(row.url, row.name, self.cfg)
         try:
             self.client.add_uri(
-                [row.url], cli.add_options(self.cfg, resolution, proxy=row.proxied)
+                [row.url],
+                cli.add_options(
+                    self.cfg,
+                    resolution,
+                    routing.through_proxy(row.url, self.cfg, forced=row.proxied),
+                ),
             )
         except (Aria2Error, Aria2Unreachable) as exc:
             self.notify(f"retry failed: {exc}", severity="error")
@@ -372,7 +377,9 @@ class DlApp(App):
             self.notify(f"skipped {resolution.path.name or url}")
             return
         resolution.path.mkdir(parents=True, exist_ok=True)
-        options = cli.add_options(self.cfg, resolution, decision=decision)
+        options = cli.add_options(
+            self.cfg, resolution, routing.through_proxy(url, self.cfg), decision
+        )
         if decision == duplicates.OVERWRITE and target is not None:
             self.run_worker(self._replace(url, options, target))
             return

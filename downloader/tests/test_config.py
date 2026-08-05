@@ -127,3 +127,34 @@ def test_paths_are_expanded(tmp_path):
     cfg = config.load(p)
     assert cfg.general.default_dir.is_absolute()
     assert "~" not in str(cfg.general.default_dir)
+
+
+def test_proxy_domains_default_to_none(tmp_path):
+    assert config.defaults().proxy_domains == ()
+
+
+def test_proxy_domains_are_read_from_the_toml(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[proxy]\nurl = "http://127.0.0.1:9"\ndomains = ["youtube.com", "*.x.io"]\n')
+    cfg = config.load(path)
+    assert cfg.proxy == "http://127.0.0.1:9"
+    assert cfg.proxy_domains == ("youtube.com", "*.x.io")
+
+
+def test_proxy_domains_are_lowercased(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[proxy]\ndomains = ["YouTube.COM"]\n')
+    assert config.load(path).proxy_domains == ("youtube.com",)
+
+
+def test_a_config_without_a_proxy_section_still_loads(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[general]\ntheme = "mono"\n')
+    assert config.load(path).proxy_domains == ()
+
+
+def test_the_written_default_config_documents_proxy_domains(tmp_path):
+    path = tmp_path / "config.toml"
+    config.write_default(path)
+    assert "domains" in path.read_text().split("[proxy]", 1)[1].split("[", 1)[0]
+    assert config.load(path).proxy_domains == ()

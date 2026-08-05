@@ -274,3 +274,18 @@ def test_burn_in_unavailable_when_the_filter_is_absent(monkeypatch):
     monkeypatch.setattr(ytjob.shutil, "which", lambda _n: "/usr/bin/ffmpeg")
     monkeypatch.setattr(ytjob.subprocess, "run", lambda *a, **k: Done())
     assert ytjob.burn_in_available() is False
+
+
+def test_a_listed_domain_gives_a_youtube_job_its_proxy():
+    from dl import config, routing
+
+    cfg = config.replace(config.defaults(), proxy_domains=("youtube.com",))
+    assert routing.through_proxy("https://www.youtube.com/watch?v=x", cfg) is True
+
+
+def test_a_job_built_without_a_proxy_passes_none_to_yt_dlp(tmp_path):
+    from dl.youtube import DEFAULTS
+
+    job = ytjob.new_job("https://youtu.be/x", tmp_path, DEFAULTS, proxy="")
+    assert "--proxy" not in ytjob.command(job, tmp_path)
+    assert "--proxy" not in ytjob.probe_command(job)

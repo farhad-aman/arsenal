@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from dl import cli, routing
+from dl import cli, config, routing
 
 
 @pytest.fixture
@@ -414,3 +414,36 @@ def test_cmd_add_without_chosen_is_unchanged(cfg):
     rc, gids = cli.cmd_add(["https://e.com/a.iso"], cfg, client, None)
     assert rc == 0
     assert client.added[0][1]["dir"] == str(cfg.categories["iso"].dir)
+
+
+def proxy_cfg(cfg, *domains):
+    return config.replace(cfg, proxy_domains=tuple(domains))
+
+
+def test_a_listed_domain_is_proxied_without_the_flag(sandbox_cfg):
+    """The -p flag cannot help a URL added from the dashboard, a retry, or the
+    clipboard watcher — the rule has to live with the URL."""
+    client = FakeClient()
+    cfg = proxy_cfg(sandbox_cfg, "e.com")
+    cli.cmd_add(["https://e.com/a.iso"], cfg, client, None)
+    assert client.added[0][1]["all-proxy"] == cfg.proxy
+
+
+def test_an_unlisted_domain_is_left_direct(sandbox_cfg):
+    client = FakeClient()
+    cli.cmd_add(["https://e.com/a.iso"], proxy_cfg(sandbox_cfg, "other.com"), client, None)
+    assert "all-proxy" not in client.added[0][1]
+
+
+def test_the_flag_still_proxies_an_unlisted_domain(sandbox_cfg):
+    client = FakeClient()
+    cli.cmd_add(["https://e.com/a.iso"], sandbox_cfg, client, None, proxy=True)
+    assert client.added[0][1]["all-proxy"] == sandbox_cfg.proxy
+
+
+def test_each_url_is_judged_on_its_own_host(sandbox_cfg):
+    client = FakeClient()
+    cfg = proxy_cfg(sandbox_cfg, "blocked.com")
+    cli.cmd_add(["https://blocked.com/a.iso", "https://open.com/b.iso"], cfg, client, None)
+    assert client.added[0][1]["all-proxy"] == cfg.proxy
+    assert "all-proxy" not in client.added[1][1]

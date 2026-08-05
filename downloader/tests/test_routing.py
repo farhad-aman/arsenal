@@ -103,3 +103,47 @@ def test_resolve_is_pure_and_creates_nothing(cfg, tmp_path):
     target = tmp_path / "never"
     routing.resolve("https://e.com/a.iso", "a.iso", cfg, explicit_dir=target)
     assert not target.exists()
+
+
+def proxied_cfg(*domains):
+    return config.replace(config.defaults(), proxy_domains=tuple(domains))
+
+
+def test_a_url_is_direct_when_no_domain_is_listed():
+    assert routing.through_proxy("https://youtube.com/watch?v=x", config.defaults()) is False
+
+
+def test_a_listed_host_goes_through_the_proxy():
+    cfg = proxied_cfg("youtube.com")
+    assert routing.through_proxy("https://youtube.com/watch?v=x", cfg) is True
+
+
+def test_a_listed_host_covers_its_subdomains():
+    """A blocked service is blocked at every hostname it answers on, so a proxy
+    rule reads as the whole domain — unlike [domains], which routes one host."""
+    cfg = proxied_cfg("youtube.com")
+    assert routing.through_proxy("https://www.youtube.com/watch?v=x", cfg) is True
+
+
+def test_a_listed_host_does_not_catch_a_lookalike():
+    cfg = proxied_cfg("youtube.com")
+    assert routing.through_proxy("https://notyoutube.com/x", cfg) is False
+
+
+def test_a_star_prefix_matches_subdomains_only():
+    cfg = proxied_cfg("*.googlevideo.com")
+    assert routing.through_proxy("https://r5.googlevideo.com/x", cfg) is True
+    assert routing.through_proxy("https://googlevideo.com/x", cfg) is False
+
+
+def test_matching_ignores_case_and_port():
+    cfg = proxied_cfg("YouTube.com")
+    assert routing.through_proxy("https://WWW.YOUTUBE.COM:443/x", cfg) is True
+
+
+def test_the_p_flag_forces_a_url_that_matches_nothing():
+    assert routing.through_proxy("https://example.com/a.iso", config.defaults(), forced=True) is True
+
+
+def test_a_url_without_a_host_is_direct():
+    assert routing.through_proxy("magnet:?xt=urn:btih:abc", proxied_cfg("youtube.com")) is False

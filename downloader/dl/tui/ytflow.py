@@ -98,7 +98,7 @@ class YouTubeSetupApp(App):
                 url,
                 Path(where or default_dir),
                 choices,
-                self.cfg.proxy if self.proxy else "",
+                self.cfg.proxy if routing.through_proxy(url, self.cfg, self.proxy) else "",
                 self.cfg.cookies_from,
             )
             self.run_worker(self._settle(index, job), exclusive=False)

@@ -112,8 +112,9 @@ def cmd_add(
             continue
         if decision == duplicates.OVERWRITE:
             evict(client, resolution.path / name if name else resolution.path)
-        gids.append(client.add_uri([url], add_options(cfg, resolution, proxy, decision)))
-        via = "  🌐 via proxy" if proxy else ""
+        via_proxy = routing.through_proxy(url, cfg, forced=proxy)
+        gids.append(client.add_uri([url], add_options(cfg, resolution, via_proxy, decision)))
+        via = "  🌐 via proxy" if via_proxy else ""
         replaced = "  ♻️ overwriting" if decision == duplicates.OVERWRITE else ""
         print(
             f"  {resolution.category.icon} queued  {name or url}"

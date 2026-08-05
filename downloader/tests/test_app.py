@@ -1124,3 +1124,45 @@ async def test_limit_on_an_empty_queue_does_nothing(cfg, monkeypatch, tmp_path):
         await pilot.press("l")
         await pilot.pause()
         assert len(app.screen_stack) == 1
+
+
+async def test_adding_a_listed_domain_from_the_dashboard_proxies_it(cfg, monkeypatch):
+    """The add box has no -p, so without a rule a filtered URL can only be
+    queued direct — and fail."""
+    from dl import config
+
+    client = FakeClient()
+    client.active = []
+    app = DlApp(config.replace(cfg, proxy_domains=("blocked.com",)), client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._queue_next(["https://blocked.com/a.iso"], 0)
+        await pilot.pause()
+    assert client.add_calls[0][1]["all-proxy"] == cfg.proxy
+
+
+async def test_adding_an_unlisted_domain_from_the_dashboard_stays_direct(cfg):
+    client = FakeClient()
+    client.active = []
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._queue_next(["https://open.com/a.iso"], 0)
+        await pilot.pause()
+    assert "all-proxy" not in client.add_calls[0][1]
+
+
+async def test_retry_proxies_a_listed_domain_even_if_it_was_added_direct(cfg):
+    from dl import config
+
+    client = FakeClient()
+    client.active = [client.active[0]]
+    client.active[0].update(status="error", errorMessage="HTTP 403")
+
+    app = DlApp(config.replace(cfg, proxy_domains=("e.com",)), client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("r")
+        await pilot.pause()
+    assert client.add_calls[0][1]["all-proxy"] == cfg.proxy
