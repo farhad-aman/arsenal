@@ -60,7 +60,8 @@ def poll_once(text: str, seen: deque, cfg: Config, client) -> bool:
 
     resolution.path.mkdir(parents=True, exist_ok=True)
     proxied = routing.through_proxy(value, cfg)
-    client.add_uri([value], cli.add_options(cfg, resolution, proxied))
+    sent = routing.header_lines(routing.headers_for(value, cfg))
+    client.add_uri([value], cli.add_options(cfg, resolution, proxied, None, sent))
     via = "  🌐 via proxy" if proxied else ""
     print(f"  {resolution.category.icon} caught  {name or value}  →  {resolution.path}{via}")
     return True

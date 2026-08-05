@@ -134,9 +134,11 @@ def test_proxy_flag_reaches_cmd_add(monkeypatch, tmp_path):
     calls = []
     _wire(monkeypatch, tmp_path, True, calls)
 
-    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False, decisions=None):
+    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False,
+               decisions=None, headers=None):
         seen["urls"] = urls
         seen["proxy"] = proxy
+        seen["headers"] = headers
         return 0, ["gidX"]
 
     monkeypatch.setattr(cli, "cmd_add", record)
@@ -148,9 +150,11 @@ def test_proxy_flag_reaches_cmd_add(monkeypatch, tmp_path):
 def _record_add(monkeypatch, seen):
     from dl import cli
 
-    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False, decisions=None):
+    def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False,
+               decisions=None, headers=None):
         seen["urls"] = urls
         seen["proxy"] = proxy
+        seen["headers"] = headers
         return 0, ["gidX"]
 
     monkeypatch.setattr(cli, "cmd_add", record)
@@ -315,3 +319,30 @@ def test_history_is_a_known_subcommand():
 
 def test_usage_mentions_history():
     assert "dl history" in entry.USAGE
+
+
+def test_dash_h_is_collected_and_removed_from_the_urls(monkeypatch):
+    seen = {}
+
+    def fake_add(urls, cfg, client, explicit_dir, chosen=None, proxy=False,
+                 decisions=None, headers=None):
+        seen["urls"] = urls
+        seen["headers"] = headers
+        return 0, []
+
+    monkeypatch.setattr(entry.cli, "cmd_add", fake_add)
+    monkeypatch.setattr(entry.daemon, "ensure_running", lambda *a, **k: object())
+    monkeypatch.setattr(entry.sys.stdout, "isatty", lambda: False)
+
+    entry.main(["-H", "Referer: https://x/", "-H", "X-A: b", "https://e.com/a.iso"])
+    assert seen["urls"] == ["https://e.com/a.iso"]
+    assert seen["headers"] == ["Referer: https://x/", "X-A: b"]
+
+
+def test_dash_h_without_a_value_is_an_error(capsys):
+    assert entry.main(["-H"]) == 1
+    assert "-H" in capsys.readouterr().err
+
+
+def test_usage_mentions_the_header_flag():
+    assert "-H" in entry.USAGE

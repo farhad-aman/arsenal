@@ -625,3 +625,49 @@ def test_history_survives_a_record_missing_everything(sandbox_cfg, tmp_path, cap
 def test_history_rejects_a_count_that_is_not_a_number(sandbox_cfg, tmp_path, capsys):
     log = write_history(tmp_path, [hist()])
     assert cli.cmd_history(sandbox_cfg, log, ["banana"]) == 1
+
+
+def headers_cfg(cfg, rules):
+    return config.replace(cfg, headers=rules)
+
+
+def test_a_matching_rule_sends_its_headers_to_aria2(sandbox_cfg):
+    client = FakeClient()
+    cfg = headers_cfg(sandbox_cfg, {"e.com": {"Referer": "https://e.com/"}})
+    cli.cmd_add(["https://e.com/a.iso"], cfg, client, None)
+    assert client.added[0][1]["header"] == ["Referer: https://e.com/"]
+
+
+def test_no_matching_rule_sends_no_header_option(sandbox_cfg):
+    client = FakeClient()
+    cli.cmd_add(["https://e.com/a.iso"], sandbox_cfg, client, None)
+    assert "header" not in client.added[0][1]
+
+
+def test_the_dash_h_flag_adds_a_one_off_header(sandbox_cfg):
+    client = FakeClient()
+    cli.cmd_add(["https://e.com/a.iso"], sandbox_cfg, client, None, headers=["Referer: x"])
+    assert client.added[0][1]["header"] == ["Referer: x"]
+
+
+def test_a_flag_header_joins_the_configured_ones(sandbox_cfg):
+    client = FakeClient()
+    cfg = headers_cfg(sandbox_cfg, {"e.com": {"Referer": "https://e.com/"}})
+    cli.cmd_add(["https://e.com/a.iso"], cfg, client, None, headers=["X-Token: abc"])
+    assert sorted(client.added[0][1]["header"]) == ["Referer: https://e.com/", "X-Token: abc"]
+
+
+def test_headers_are_judged_per_url(sandbox_cfg):
+    client = FakeClient()
+    cfg = headers_cfg(sandbox_cfg, {"gated.com": {"Referer": "https://gated.com/"}})
+    cli.cmd_add(["https://gated.com/a.iso", "https://open.com/b.iso"], cfg, client, None)
+    assert client.added[0][1]["header"] == ["Referer: https://gated.com/"]
+    assert "header" not in client.added[1][1]
+
+
+def test_a_header_value_is_never_printed(sandbox_cfg, capsys):
+    """Cookie and Authorization live here. The queue line must not echo them."""
+    client = FakeClient()
+    cfg = headers_cfg(sandbox_cfg, {"e.com": {"Cookie": "session=SUPERSECRET"}})
+    cli.cmd_add(["https://e.com/a.iso"], cfg, client, None)
+    assert "SUPERSECRET" not in capsys.readouterr().out

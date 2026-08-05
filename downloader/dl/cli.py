@@ -18,7 +18,11 @@ def looks_like_url(value: str) -> bool:
 
 
 def add_options(
-    cfg: Config, resolution: Resolution, proxy: bool = False, decision: str | None = None
+    cfg: Config,
+    resolution: Resolution,
+    proxy: bool = False,
+    decision: str | None = None,
+    headers: list[str] | None = None,
 ) -> dict:
     options = {
         "dir": str(resolution.path),
@@ -29,6 +33,10 @@ def add_options(
     }
     if proxy:
         options["all-proxy"] = cfg.proxy
+    if headers:
+        # Sent over RPC rather than on a command line, so a Cookie or
+        # Authorization value never shows up in `ps`.
+        options["header"] = list(headers)
     if decision == duplicates.RENAME:
         options["auto-file-renaming"] = "true"
         options["allow-overwrite"] = "false"
@@ -84,6 +92,7 @@ def cmd_add(
     chosen: list[Path | None] | None = None,
     proxy: bool = False,
     decisions: list[str | None] | None = None,
+    headers: list[str] | None = None,
 ) -> tuple[int, list[str]]:
     if not urls:
         print("dl: no URLs given", file=sys.stderr)
@@ -113,7 +122,10 @@ def cmd_add(
         if decision == duplicates.OVERWRITE:
             evict(client, resolution.path / name if name else resolution.path)
         via_proxy = routing.through_proxy(url, cfg, forced=proxy)
-        gids.append(client.add_uri([url], add_options(cfg, resolution, via_proxy, decision)))
+        sent = routing.header_lines(routing.headers_for(url, cfg)) + list(headers or [])
+        gids.append(
+            client.add_uri([url], add_options(cfg, resolution, via_proxy, decision, sent))
+        )
         via = "  🌐 via proxy" if via_proxy else ""
         replaced = "  ♻️ overwriting" if decision == duplicates.OVERWRITE else ""
         print(

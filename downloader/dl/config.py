@@ -2,7 +2,7 @@ import os
 import re
 import sys
 import tomllib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "dl"
@@ -64,6 +64,7 @@ class Config:
     proxy_domains: tuple[str, ...] = ()
     cookies_from: str = DEFAULT_COOKIES
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
+    headers: dict[str, dict[str, str]] = field(default_factory=dict)
     on_complete: str = ""
     hook_timeout: int = DEFAULT_HOOK_TIMEOUT
 
@@ -193,6 +194,10 @@ def load(path: Path | None = None) -> Config:
                 if "probe_timeout" in raw.get("youtube", {})
                 else DEFAULT_PROBE_TIMEOUT
             ),
+            headers={
+                str(host).lower(): {str(k): str(v) for k, v in fields.items()}
+                for host, fields in raw.get("headers", {}).items()
+            },
             on_complete=str(raw.get("hooks", {}).get("on_complete", "")),
             hook_timeout=(
                 parse_duration(raw["hooks"]["timeout"])
@@ -230,6 +235,12 @@ cookies_from = "chrome"
 # Over a proxy this ranges from seconds to minutes; giving up early costs the
 # title, the size and the check for a copy already on disk.
 probe_timeout = "3m"
+
+# Sent with every request to a matching host. Same host rule as [proxy.domains]:
+# a bare name covers subdomains, "*." matches subdomains only. Useful for hosts
+# that check Referer. Anything secret here is only as private as this file.
+# [headers."indllserver.info"]
+# Referer = "https://indllserver.info/"
 
 [hooks]
 # Run after every finished download, as: <command> <path> <category> <url>

@@ -31,6 +31,7 @@ dl <url> [url...]        queue downloads and watch them live
 dl -f <file|->           queue URLs from a file or stdin
 dl -d <dir> <url>        override the destination for this download
 dl -p <url>              download through the sing-box proxy
+dl -H "Key: Value"       extra request header (repeatable)
 dl --no-preview <url>    queue and exit without the live preview
 dl                       open the TUI
 
@@ -223,6 +224,24 @@ the duplicate check compares against, and over a proxy it can take anywhere from
 twenty seconds to a couple of minutes. If it never arrives, `dl` says so and asks
 rather than queueing blind, because a download queued without it would be
 silently declined by yt-dlp when the file is already there.
+
+Hosts that check `Referer` — or want a token, or a particular user agent — get
+their headers from `[headers]`:
+
+```toml
+[headers."indllserver.info"]
+Referer = "https://indllserver.info/"
+```
+
+Same host rule as `proxy.domains`, so one entry covers `dl6`, `dl7` and whatever
+they use next. Every matching rule contributes and the more specific one wins a
+clash, so a site-wide `Referer` and a per-host token coexist.
+
+Headers reach aria2 over RPC, never on a command line, so a `Cookie` or
+`Authorization` value does not show up in `ps`. It is still sitting in a config
+file, though — that file is as private as its permissions make it.
+
+`-H "Key: Value"` adds one for a single download, alongside anything configured.
 
 `hooks.on_complete` runs your own command once a download lands:
 

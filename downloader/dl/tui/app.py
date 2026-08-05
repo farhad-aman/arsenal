@@ -273,6 +273,8 @@ class DlApp(App):
                     self.cfg,
                     resolution,
                     routing.through_proxy(row.url, self.cfg, forced=row.proxied),
+                    None,
+                    routing.header_lines(routing.headers_for(row.url, self.cfg)),
                 ),
             )
         except (Aria2Error, Aria2Unreachable) as exc:
@@ -380,7 +382,11 @@ class DlApp(App):
             return
         resolution.path.mkdir(parents=True, exist_ok=True)
         options = cli.add_options(
-            self.cfg, resolution, routing.through_proxy(url, self.cfg), decision
+            self.cfg,
+            resolution,
+            routing.through_proxy(url, self.cfg),
+            decision,
+            routing.header_lines(routing.headers_for(url, self.cfg)),
         )
         if decision == duplicates.OVERWRITE and target is not None:
             self.run_worker(self._replace(url, options, target))

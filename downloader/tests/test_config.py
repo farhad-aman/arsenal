@@ -186,3 +186,32 @@ def test_the_hook_timeout_has_a_default(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text('[hooks]\non_complete = "x"\n')
     assert config.load(path).hook_timeout == 300
+
+
+def test_no_headers_by_default():
+    assert config.defaults().headers == {}
+
+
+def test_headers_are_read_from_the_toml(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[headers."dl6.indllserver.info"]\n'
+        'Referer = "https://indllserver.info/"\n'
+        'User-Agent = "Mozilla/5.0"\n'
+    )
+    cfg = config.load(path)
+    assert cfg.headers == {
+        "dl6.indllserver.info": {"Referer": "https://indllserver.info/", "User-Agent": "Mozilla/5.0"}
+    }
+
+
+def test_header_hosts_are_lowercased(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[headers."DL6.Example.COM"]\nReferer = "x"\n')
+    assert list(config.load(path).headers) == ["dl6.example.com"]
+
+
+def test_a_config_without_headers_still_loads(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[general]\ntheme = "mono"\n')
+    assert config.load(path).headers == {}

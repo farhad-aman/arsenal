@@ -14,6 +14,7 @@ dl — download manager
   dl -f <file|->           queue URLs from a file or stdin
   dl -d <dir> <url>        override the destination for this download
   dl -p <url>              download through the sing-box proxy
+  dl -H "Key: Value"       extra request header (repeatable)
   --no-preview             queue and exit without attaching the live preview
   dl                       open the TUI
 
@@ -65,6 +66,15 @@ def _run(args: list[str]) -> int:
 
     proxy = "-p" in args or "--proxy" in args
     args = [a for a in args if a not in ("-p", "--proxy")]
+
+    headers: list[str] = []
+    while "-H" in args:
+        at = args.index("-H")
+        if at + 1 >= len(args):
+            print("dl: -H needs a header, e.g. -H \"Referer: https://site/\"", file=sys.stderr)
+            return 1
+        headers.append(args[at + 1])
+        del args[at : at + 2]
 
     if not CONFIG_FILE.exists():
         config.write_default(CONFIG_FILE)
@@ -134,11 +144,11 @@ def _run(args: list[str]) -> int:
         daemon.bump_generation(config.STATE_DIR)
         interactive = preview and sys.stdout.isatty()
         if not interactive:
-            rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy)
+            rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy, headers=headers)
             return rc
 
         if not all(cli.looks_like_url(u) for u in urls):
-            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy)
+            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy, headers=headers)
             if gids:
                 lines, _cancelled = run_preview(cfg, client, gids=gids)
                 for line in lines:
@@ -156,7 +166,8 @@ def _run(args: list[str]) -> int:
 
         def queue(chosen, decisions=None):
             rc, gids = cli.cmd_add(
-                urls, cfg, client, explicit_dir, chosen or None, proxy, decisions or None
+                urls, cfg, client, explicit_dir, chosen or None, proxy,
+                decisions or None, headers,
             )
             outcome["rc"] = rc
             return gids

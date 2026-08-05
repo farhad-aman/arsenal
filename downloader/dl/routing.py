@@ -54,14 +54,35 @@ def through_proxy(url: str, cfg: Config, forced: bool = False) -> bool:
     host = (urlsplit(url).hostname or "").lower()
     if not host:
         return False
-    return any(
-        host.endswith(rule[1:]) if rule.startswith("*.") else _covers(rule, host)
-        for rule in (r.lower() for r in cfg.proxy_domains)
-    )
+    return any(_covers(rule, host) for rule in (r.lower() for r in cfg.proxy_domains))
 
 
 def _covers(rule: str, host: str) -> bool:
+    if rule.startswith("*."):
+        return host.endswith(rule[1:])
     return host == rule or host.endswith(f".{rule}")
+
+
+def headers_for(url: str, cfg: Config) -> dict[str, str]:
+    """Extra request headers for this host.
+
+    Same host rule as the proxy, so one entry covers a site's whole download
+    farm rather than dl6 today and dl7 tomorrow. Every matching rule
+    contributes, most specific last, so a per-host value beats a site-wide one.
+    """
+    host = (urlsplit(url).hostname or "").lower()
+    if not host:
+        return {}
+    matched = [(rule, fields) for rule, fields in cfg.headers.items() if _covers(rule.lower(), host)]
+    merged: dict[str, str] = {}
+    for _rule, fields in sorted(matched, key=lambda pair: len(pair[0])):
+        merged.update(fields)
+    return merged
+
+
+def header_lines(headers: dict[str, str]) -> list[str]:
+    """aria2 and yt-dlp both want them back as "Key: Value"."""
+    return [f"{key}: {value}" for key, value in headers.items()]
 
 
 def _by_extension(filename: str, cfg: Config) -> Category | None:

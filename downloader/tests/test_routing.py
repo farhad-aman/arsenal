@@ -147,3 +147,61 @@ def test_the_p_flag_forces_a_url_that_matches_nothing():
 
 def test_a_url_without_a_host_is_direct():
     assert routing.through_proxy("magnet:?xt=urn:btih:abc", proxied_cfg("youtube.com")) is False
+
+
+def header_cfg(rules):
+    return config.replace(config.defaults(), headers=rules)
+
+
+def test_no_headers_configured_sends_none():
+    assert routing.headers_for("https://e.com/a.iso", config.defaults()) == {}
+
+
+def test_headers_are_matched_by_host():
+    cfg = header_cfg({"dl6.indllserver.info": {"Referer": "https://indllserver.info/"}})
+    got = routing.headers_for("https://dl6.indllserver.info/a.mkv", cfg)
+    assert got == {"Referer": "https://indllserver.info/"}
+
+
+def test_headers_follow_the_same_host_rule_as_the_proxy():
+    """A bare name covers subdomains, so one rule serves dl6, dl7 and the rest."""
+    cfg = header_cfg({"indllserver.info": {"Referer": "https://indllserver.info/"}})
+    assert routing.headers_for("https://dl6.indllserver.info/a.mkv", cfg)
+    assert routing.headers_for("https://indllserver.info/a.mkv", cfg)
+    assert routing.headers_for("https://notindllserver.info/a.mkv", cfg) == {}
+
+
+def test_a_star_prefix_still_means_subdomains_only():
+    cfg = header_cfg({"*.cdn.io": {"Referer": "x"}})
+    assert routing.headers_for("https://a.cdn.io/f", cfg)
+    assert routing.headers_for("https://cdn.io/f", cfg) == {}
+
+
+def test_headers_from_every_matching_rule_are_merged():
+    cfg = header_cfg({
+        "example.com": {"Referer": "https://example.com/"},
+        "dl.example.com": {"X-Token": "abc"},
+    })
+    got = routing.headers_for("https://dl.example.com/a.iso", cfg)
+    assert got == {"Referer": "https://example.com/", "X-Token": "abc"}
+
+
+def test_the_more_specific_rule_wins_a_clash():
+    cfg = header_cfg({
+        "example.com": {"Referer": "general"},
+        "dl.example.com": {"Referer": "specific"},
+    })
+    assert routing.headers_for("https://dl.example.com/a", cfg)["Referer"] == "specific"
+
+
+def test_a_url_without_a_host_gets_no_headers():
+    cfg = header_cfg({"example.com": {"Referer": "x"}})
+    assert routing.headers_for("magnet:?xt=urn:btih:abc", cfg) == {}
+
+
+def test_header_lines_are_formatted_the_way_aria2_wants():
+    assert routing.header_lines({"Referer": "https://x/"}) == ["Referer: https://x/"]
+
+
+def test_header_lines_of_nothing_is_empty():
+    assert routing.header_lines({}) == []
