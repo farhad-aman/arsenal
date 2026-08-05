@@ -105,6 +105,7 @@ class DlApp(App):
         yield self.hint
 
     def on_mount(self) -> None:
+        ytjob.sweep(STATE_DIR / "yt", self.history_log)
         self.completed.display = False
         self.set_interval(0.5, self.refresh_data)
         self.set_interval(0.1, self.table.refresh_view)
@@ -327,10 +328,11 @@ class DlApp(App):
         Failures stay on the list until they are deleted: a job that vanished
         on error would look exactly like one that never started.
         """
+        jobs = [ytjob.reap(STATE_DIR / "yt", job) for job in ytjob.list_jobs(STATE_DIR / "yt")]
         return self._filter_jobs(
             [
                 job
-                for job in ytjob.list_jobs(STATE_DIR / "yt")
+                for job in jobs
                 if job.get("status") in ("queued", "active", "burning", "paused", "error")
             ]
         )
@@ -458,8 +460,13 @@ class DlApp(App):
             if choice is None:
                 return
             for job in ytjob.list_jobs(STATE_DIR / "yt"):
-                if job.get("id") == row.gid and ytjob.running(job.get("pid", 0)):
+                if job.get("id") != row.gid:
+                    continue
+                if ytjob.running(job.get("pid", 0)):
                     ytjob.stop(job)
+                # Fragments sit outside the destination folder, so deleting the
+                # record is the last chance anything has to notice them.
+                ytjob.clean_scratch(STATE_DIR / "yt", job)
             job_file.unlink(missing_ok=True)
             job_file.with_suffix(".log").unlink(missing_ok=True)
             if choice == "disk" and has_file:

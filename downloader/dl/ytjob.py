@@ -30,6 +30,7 @@ def new_job(
         "status": "queued",
         "title": "",
         "pid": 0,
+        "supervisor": 0,
         "done": 0,
         "total": 0,
         "speed": 0,
@@ -240,3 +241,76 @@ def running(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+UNFINISHED = ("queued", "active", "burning")
+KEEP_FINISHED = 3600
+
+
+def _recorded_urls(history_log: Path | None) -> set[str]:
+    if history_log is None:
+        return set()
+    from . import history
+
+    return {record.get("url", "") for record in history.tail(history_log, 1000)}
+
+
+def orphaned(job: dict) -> bool:
+    """A record still claiming to run with nothing behind it.
+
+    Only a supervisor known to have existed counts. A job spawned moments ago
+    has not written its pid yet, and the probe can hold it there for minutes.
+    """
+    if job.get("status") not in UNFINISHED:
+        return False
+    watcher = job.get("supervisor", 0)
+    return bool(watcher) and not running(watcher)
+
+
+def reap(directory: Path, job: dict) -> dict:
+    if not orphaned(job):
+        return job
+    job.update(status="error", error="stopped — nothing is downloading this", speed=0)
+    save(directory, job)
+    return job
+
+
+def sweep(
+    directory: Path,
+    history_log: Path | None = None,
+    keep_finished: int = KEEP_FINISHED,
+    now: float | None = None,
+) -> None:
+    """Bring the job directory back in line with reality.
+
+    Fragments are the reason this exists: they live outside the destination
+    folder, so a job that ends any way other than cleanly leaves them where
+    nothing will ever look.
+
+    A finished record is only dropped once history.jsonl carries the download,
+    never on age alone. These records are the fallback when the handover did
+    not happen, and dropping one that history never received would erase the
+    only trace of it.
+    """
+    if not directory.is_dir():
+        return
+    moment = time.time() if now is None else now
+    recorded = _recorded_urls(history_log)
+    live: set[str] = set()
+    for job in list_jobs(directory):
+        reap(directory, job)
+        record = directory / f"{job['id']}.json"
+        finished = job.get("status") in ("complete", "cancelled")
+        aged = moment - record.stat().st_mtime > keep_finished
+        if finished and aged and job.get("url", "") in recorded:
+            record.unlink(missing_ok=True)
+            record.with_suffix(".log").unlink(missing_ok=True)
+            continue
+        live.add(job["id"])
+
+    for scratch in directory.glob("yt-*.part"):
+        if scratch.name.removesuffix(".part") not in live:
+            shutil.rmtree(scratch, ignore_errors=True)
+    for marker in directory.glob("yt-*.final"):
+        if marker.stem not in live:
+            marker.unlink(missing_ok=True)

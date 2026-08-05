@@ -1,4 +1,8 @@
 import json
+import os
+import subprocess
+import sys
+import time
 
 import pytest
 
@@ -289,3 +293,112 @@ def test_a_job_built_without_a_proxy_passes_none_to_yt_dlp(tmp_path):
     job = ytjob.new_job("https://youtu.be/x", tmp_path, DEFAULTS, proxy="")
     assert "--proxy" not in ytjob.command(job, tmp_path)
     assert "--proxy" not in ytjob.probe_command(job)
+
+
+def live_job(tmp_path, **over):
+    from dl.youtube import DEFAULTS
+
+    job = ytjob.new_job("https://youtu.be/abc", tmp_path / "out", DEFAULTS)
+    job.update({"status": "active", "supervisor": os.getpid(), **over})
+    return job
+
+
+def dead_pid():
+    """A pid that has certainly exited."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def test_a_job_whose_supervisor_is_alive_is_not_orphaned(tmp_path):
+    assert ytjob.orphaned(live_job(tmp_path)) is False
+
+
+def test_a_job_whose_supervisor_died_is_orphaned(tmp_path):
+    assert ytjob.orphaned(live_job(tmp_path, supervisor=dead_pid())) is True
+
+
+def test_a_job_that_has_not_started_its_supervisor_yet_is_left_alone(tmp_path):
+    """Between spawn and the supervisor's first write there is no pid to check,
+    and a probe can hold that state for minutes."""
+    assert ytjob.orphaned(live_job(tmp_path, status="queued", supervisor=0)) is False
+
+
+def test_a_finished_job_is_never_orphaned(tmp_path):
+    assert ytjob.orphaned(live_job(tmp_path, status="complete", supervisor=dead_pid())) is False
+
+
+def test_reaping_records_why_the_row_stopped(tmp_path):
+    job = ytjob.save(tmp_path, live_job(tmp_path, supervisor=dead_pid()))
+    reaped = ytjob.reap(tmp_path, ytjob.read(job))
+    assert reaped["status"] == "error"
+    assert reaped["error"]
+    assert ytjob.read(job)["status"] == "error", "must persist, not just report"
+
+
+def test_sweeping_reaps_an_orphan(tmp_path):
+    ytjob.save(tmp_path, live_job(tmp_path, supervisor=dead_pid()))
+    ytjob.sweep(tmp_path)
+    assert [j["status"] for j in ytjob.list_jobs(tmp_path)] == ["error"]
+
+
+def logged(tmp_path, job):
+    from dl import history
+
+    log = tmp_path / "history.jsonl"
+    history.append({"ts": 1, "name": "x", "url": job["url"], "status": "ok"}, log)
+    return log
+
+
+def test_sweeping_drops_a_finished_record_once_history_has_it(tmp_path):
+    job = live_job(tmp_path, status="complete")
+    saved = ytjob.save(tmp_path, job)
+    saved.with_suffix(".log").write_text("noise")
+    log = logged(tmp_path, job)
+    ytjob.sweep(tmp_path, log, now=time.time() + ytjob.KEEP_FINISHED + 1)
+    assert ytjob.list_jobs(tmp_path) == []
+    assert not saved.with_suffix(".log").exists()
+
+
+def test_sweeping_keeps_a_finished_record_history_never_received(tmp_path):
+    """These records are the fallback for exactly that failure. Dropping one on
+    age alone would erase the only trace the download ever happened."""
+    job = live_job(tmp_path, status="complete")
+    ytjob.save(tmp_path, job)
+    ytjob.sweep(tmp_path, tmp_path / "history.jsonl", now=time.time() + ytjob.KEEP_FINISHED + 1)
+    assert len(ytjob.list_jobs(tmp_path)) == 1
+
+
+def test_sweeping_keeps_a_finished_record_that_is_still_fresh(tmp_path):
+    """The watch view polls its own ids until they settle; pruning one out from
+    under it would leave it waiting on a record that no longer exists."""
+    job = live_job(tmp_path, status="complete")
+    ytjob.save(tmp_path, job)
+    ytjob.sweep(tmp_path, logged(tmp_path, job))
+    assert len(ytjob.list_jobs(tmp_path)) == 1
+
+
+def test_sweeping_without_a_history_log_never_drops_a_record(tmp_path):
+    job = live_job(tmp_path, status="complete")
+    ytjob.save(tmp_path, job)
+    ytjob.sweep(tmp_path, now=time.time() + ytjob.KEEP_FINISHED + 1)
+    assert len(ytjob.list_jobs(tmp_path)) == 1
+
+
+def test_sweeping_removes_fragments_left_by_a_job_that_is_gone(tmp_path):
+    orphan = tmp_path / "yt-gone.part"
+    orphan.mkdir(parents=True)
+    (orphan / "frag").write_bytes(b"x" * 1024)
+    (tmp_path / "yt-gone.final").write_text("/tmp/x.mp4")
+    ytjob.sweep(tmp_path)
+    assert not orphan.exists()
+    assert not (tmp_path / "yt-gone.final").exists()
+
+
+def test_sweeping_leaves_fragments_belonging_to_a_live_job(tmp_path):
+    job = live_job(tmp_path)
+    ytjob.save(tmp_path, job)
+    scratch = ytjob.scratch_dir(tmp_path, job)
+    scratch.mkdir(parents=True)
+    ytjob.sweep(tmp_path)
+    assert scratch.exists()

@@ -239,6 +239,8 @@ models 🧠, code 💻.
 | `~/.local/state/dl/history.jsonl` | completed downloads, append-only |
 | `~/.local/state/dl/rpc.secret` | RPC token, mode 0600 |
 | `~/.local/state/dl/port` | chosen RPC port |
+| `~/.local/state/dl/yt/*.json` | yt-dlp job records, swept on dashboard start |
+| `~/.local/state/dl/yt/*.part` | yt-dlp fragments, removed with their job |
 | `~/.local/state/dl/hooks/*.sh` | generated aria2 completion hooks |
 | `~/.local/state/dl/aria2.log` | aria2 errors |
 

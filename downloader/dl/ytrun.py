@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -182,6 +183,9 @@ def main(argv: list[str]) -> int:
     state = STATE_DIR / "yt"
     job = ytjob.read(Path(argv[0]))
     cfg = load()
+    # Before the probe, which can hold this job at "queued" for minutes: until
+    # there is a pid to check, a dead job is indistinguishable from a slow one.
+    _update(state, job, supervisor=os.getpid())
     directory = Path(job["dir"])
     directory.mkdir(parents=True, exist_ok=True)
 

@@ -1166,3 +1166,53 @@ async def test_retry_proxies_a_listed_domain_even_if_it_was_added_direct(cfg):
         await pilot.press("r")
         await pilot.pause()
     assert client.add_calls[0][1]["all-proxy"] == cfg.proxy
+
+
+async def test_deleting_a_youtube_job_takes_its_fragments_with_it(cfg, tmp_path, monkeypatch):
+    """Fragments live outside the destination, so nothing else would ever
+    notice them — the same leftover the .aria2 sidecar used to be."""
+    from dl import ytjob
+
+    job, saved, _spawned = plant_job(tmp_path, monkeypatch)
+    scratch = ytjob.scratch_dir(tmp_path / "yt", job)
+    scratch.mkdir(parents=True)
+    (scratch / "frag").write_bytes(b"x" * 4096)
+    marker = ytjob.result_marker(tmp_path / "yt", job)
+    marker.write_text("/tmp/clip.mp4")
+
+    client = FakeClient()
+    client.active = []
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+    assert not saved.exists()
+    assert not scratch.exists()
+    assert not marker.exists()
+
+
+async def test_a_job_whose_supervisor_died_stops_claiming_to_run(cfg, tmp_path, monkeypatch):
+    """After a reboot the record still says active, so the row shows a download
+    that nothing is working on."""
+    import subprocess
+    import sys
+
+    from dl import ytjob
+
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    _job, saved, _spawned = plant_job(tmp_path, monkeypatch, supervisor=proc.pid)
+
+    client = FakeClient()
+    client.active = []
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert app.table.rows[0].status == "error"
+        assert app.table.rows[0].error
+    assert ytjob.read(saved)["status"] == "error"

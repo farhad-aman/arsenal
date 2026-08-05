@@ -218,7 +218,11 @@ class YouTubeWatchApp(App):
         self.call_after_refresh(self.poll)
 
     def poll(self) -> None:
-        mine = [j for j in ytjob.list_jobs(jobs_dir()) if j.get("id") in self.ids]
+        mine = [
+            ytjob.reap(jobs_dir(), j)
+            for j in ytjob.list_jobs(jobs_dir())
+            if j.get("id") in self.ids
+        ]
         self.table.set_rows([row_from_job(job, self.cfg) for job in mine])
         if mine and all(job.get("status") in SETTLED for job in mine):
             self.finished = mine
