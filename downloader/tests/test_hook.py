@@ -1,4 +1,7 @@
 import json
+import shutil
+import subprocess
+import types
 
 import pytest
 
@@ -238,3 +241,56 @@ def test_main_writes_history_row_on_success(tmp_path, cfg, monkeypatch):
     assert hook.main(["complete", "g1", "1", "/tmp/a.iso"]) == 0
     rows = [json.loads(line) for line in (tmp_path / "history.jsonl").read_text().splitlines()]
     assert rows[0]["name"] == "a.iso"
+
+
+def test_notify_quotes_the_applescript_way_not_the_python_way():
+    """AppleScript string literals need double quotes. Python's !r emits single
+    ones, which osascript rejects as a syntax error — silently, because notify
+    captures output and never checks the code."""
+    script = hook.notify_script("Download complete", "ubuntu.iso")
+    assert script == 'display notification "ubuntu.iso" with title "Download complete"'
+
+
+def test_notify_escapes_a_quote_in_the_filename():
+    script = hook.notify_script("Download complete", 'a "quoted" file.iso')
+    assert r'\"quoted\"' in script
+
+
+def test_notify_escapes_a_backslash_in_the_filename():
+    script = hook.notify_script("Download complete", r"we\ird.iso")
+    assert r"we\\ird.iso" in script
+
+
+def test_notify_keeps_non_ascii_titles_intact():
+    """Most of what gets downloaded here is not ASCII."""
+    assert "دختره دلمو" in hook.notify_script("Download complete", "دختره دلمو.mp4")
+
+
+@pytest.mark.skipif(shutil.which("osascript") is None, reason="macOS only")
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ubuntu.iso",
+        'a "quoted" file.iso',
+        r"we\ird.iso",
+        "دختره دلمو شکوند ولی…💔.mp4",
+        "Toxicity - System of a down SOAD ｜ Drumcover.mp4",
+    ],
+)
+def test_osascript_actually_accepts_what_notify_builds(name):
+    """The unit tests above only prove the string looks right. This one proves
+    macOS parses it, which is the part that was broken."""
+    done = subprocess.run(
+        ["osascript", "-e", hook.notify_script("Download complete", name)],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+
+
+def test_notify_reports_whether_it_got_through(monkeypatch):
+    """Swallowing the result is why this went unnoticed for so long."""
+    monkeypatch.setattr(
+        hook.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=1, stderr="nope")
+    )
+    assert hook.notify("t", "b") is False

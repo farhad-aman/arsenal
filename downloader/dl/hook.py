@@ -80,9 +80,22 @@ def relocate(path: Path, cfg: Config, url: str) -> Path:
     return destination
 
 
-def notify(title: str, body: str) -> None:
-    script = f'display notification {body!r} with title {title!r}'
-    subprocess.run(["osascript", "-e", script], capture_output=True, check=False)
+def _applescript(value: str) -> str:
+    """AppleScript string literals take double quotes. Python's !r gives single
+    ones, which osascript rejects outright."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def notify_script(title: str, body: str) -> str:
+    return f"display notification {_applescript(body)} with title {_applescript(title)}"
+
+
+def notify(title: str, body: str) -> bool:
+    done = subprocess.run(
+        ["osascript", "-e", notify_script(title, body)], capture_output=True, check=False
+    )
+    return done.returncode == 0
 
 
 def _spawn_sleeper(state: Path, generation: int, delay: int) -> None:
