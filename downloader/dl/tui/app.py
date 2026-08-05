@@ -10,7 +10,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Static
 
 from .. import cli, config, duplicates, history, routing, theme, ytjob
-from ..config import STATE_DIR, Config
+from ..config import CONFIG_FILE, STATE_DIR, Config
 from ..format import human_bytes
 from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import CompletedTable, record_path
@@ -33,12 +33,16 @@ Screen { layout: vertical; }
 StatusBar { height: 1; dock: top; padding: 0 1; }
 #body { height: 1fr; padding: 0 1; }
 #hint { dock: bottom; height: 1; padding: 0 1; }
-AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen, DuplicateModal {
+AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen, DuplicateModal,
+SettingsMenuScreen, FormScreen, ProxyScreen, HeadersScreen, CategoriesScreen {
     align: center middle;
 }
-#add-box, #limit-box, #confirm-box, #delete-box, #picker-box, #duplicate-box {
+#add-box, #limit-box, #confirm-box, #delete-box, #picker-box, #duplicate-box, #settings-box {
     width: 76; padding: 1 2; border: round $accent; background: $surface;
 }
+#settings-list, #settings-error { height: auto; }
+#settings-head { text-style: bold; }
+#settings-input { margin-top: 1; }
 #duplicate-box Button { width: 100%; margin-top: 1; }
 #duplicate-head { text-style: bold; }
 #duplicate-detail { height: auto; margin-top: 1; }
@@ -51,7 +55,7 @@ AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen, Duplicate
 
 HINT = (
     "a add   space pause/resume   d delete   J K reorder   l limit   "
-    "o open   f finder   tab completed   q quit"
+    "o open   f finder   s settings   tab completed   q quit"
 )
 HINT_DONE = "o open   f finder   d delete   ↑↓ move   tab active   q quit"
 
@@ -73,6 +77,7 @@ class DlApp(App):
         ("p", "pause_all", "pause all"),
         ("u", "resume_all", "resume all"),
         ("r", "retry", "retry"),
+        ("s", "settings", "settings"),
         Binding("tab", "toggle_tab", "completed", priority=True),
         ("enter", "expand", "expand"),
         ("down", "cursor_down", "down"),
@@ -344,6 +349,11 @@ class DlApp(App):
                 self._queue_next(list(urls), 0)
 
         self.push_screen(AddUrlModal(), queue)
+
+    def action_settings(self) -> None:
+        from .settings import SettingsMenuScreen
+
+        self.push_screen(SettingsMenuScreen(self.cfg, CONFIG_FILE))
 
     def _youtube_jobs(self) -> list[dict]:
         """yt-dlp downloads, which the aria2 daemon knows nothing about.

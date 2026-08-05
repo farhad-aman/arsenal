@@ -3,7 +3,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Input, Static
 
 from dl import settings
-from dl.tui.settings import FormScreen
+from dl.tui.settings import FormScreen, SettingsMenuScreen
 
 
 @pytest.fixture
@@ -198,3 +198,77 @@ async def test_the_input_is_hidden_until_it_is_needed(cfg):
         await pilot.press("enter")
         await pilot.pause()
         assert screen.query_one("#settings-input", Input).display is True
+
+
+SAMPLE = """\
+[general]
+theme = "aurora"
+max_concurrent = 3
+"""
+
+
+def menu(cfg, tmp_path, text=SAMPLE):
+    path = tmp_path / "config.toml"
+    path.write_text(text)
+    return SettingsMenuScreen(cfg, path), path
+
+
+async def test_the_menu_lists_every_section(cfg, tmp_path):
+    screen, _ = menu(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        for name in ("General", "Limits", "YouTube", "Hooks", "Proxy", "Headers", "Categories"):
+            assert name in screen.body
+
+
+async def test_a_broken_config_refuses_to_be_edited(cfg, tmp_path):
+    """config.load() falls back to defaults on a broken file, so saving would
+    write those defaults over whatever the user actually wrote."""
+    screen, _ = menu(cfg, tmp_path, '[general]\ntheme = "aurora\n')
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert "syntax error" in screen.body.lower()
+        assert screen.blocked is True
+
+
+async def test_a_broken_config_is_never_written_to(cfg, tmp_path):
+    broken = '[general]\ntheme = "aurora\n'
+    screen, path = menu(cfg, tmp_path, broken)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+    assert path.read_text() == broken
+
+
+async def test_escape_closes_the_menu(cfg, tmp_path):
+    screen, _ = menu(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+    assert app.result is None
+
+
+async def test_saving_a_section_writes_it_to_the_file(cfg, tmp_path):
+    screen, path = menu(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.save({("general", "theme"): "ember"})
+        await pilot.pause()
+    assert 'theme = "ember"' in path.read_text()
+
+
+async def test_opening_a_section_pushes_its_form(cfg, tmp_path):
+    screen, _ = menu(cfg, tmp_path)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert type(app.screen).__name__ == "FormScreen"

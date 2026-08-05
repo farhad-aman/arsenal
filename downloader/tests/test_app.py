@@ -1286,3 +1286,13 @@ async def test_reload_survives_a_daemon_that_is_gone(cfg):
         await pilot.pause()
         assert app.is_running is True
         assert app.cfg is changed
+
+
+async def test_s_opens_the_settings_menu(cfg):
+    client = FakeClient()
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("s")
+        await pilot.pause()
+        assert type(app.screen).__name__ == "SettingsMenuScreen"
