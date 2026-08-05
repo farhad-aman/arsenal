@@ -270,6 +270,8 @@ class SettingsMenuScreen(ModalScreen[None]):
                 return
         if name == "Proxy":
             self.app.push_screen(ProxyScreen(self.cfg), self._saved)
+        if name == "Headers":
+            self.app.push_screen(HeadersScreen(self.cfg), self._saved)
 
     def _saved(self, changes: dict | None) -> None:
         if changes:
@@ -442,3 +444,133 @@ class ProxyScreen(ModalScreen[dict]):
             self._submit()
             return
         self.dismiss({("proxy", "url"): self.url, ("proxy", "domains"): list(self.domains)})
+
+
+HEADER_HINT = "↑↓ move   a add   d delete   ^S save   esc cancel"
+HEADER_FORM = "host | key | value"
+
+
+class HeadersScreen(ModalScreen[dict]):
+    """Per-host request headers.
+
+    TOML nests these two deep. The editor keeps them flat — one row per
+    (host, key, value) — and rebuilds the nesting on save, so there is no
+    second level to drill into for what is usually one line per site.
+    """
+
+    AUTO_FOCUS = ""
+
+    BINDINGS = [
+        ("escape", "cancel", "cancel"),
+        Binding("up", "previous", "up", priority=True),
+        Binding("down", "next", "down", priority=True),
+        Binding("a", "add", "add", priority=True),
+        Binding("d", "delete", "delete", priority=True),
+        Binding("ctrl+s", "save", "save", priority=True),
+    ]
+
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+        self.rules = [
+            (host, key, value)
+            for host, fields in cfg.headers.items()
+            for key, value in fields.items()
+        ]
+        self.cursor = 0
+        self.editing = False
+        self.body = ""
+        self.error = ""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="settings-box"):
+            yield Static("  ⚙  Headers", id="settings-head")
+            yield Static("", id="settings-list")
+            yield Input("", id="settings-input", placeholder=HEADER_FORM)
+            yield Static("", id="settings-error")
+            yield Static(HEADER_HINT, id="settings-hint")
+
+    def on_mount(self) -> None:
+        self.query_one("#settings-input", Input).display = False
+        self._repaint()
+
+    def _repaint(self) -> None:
+        rows = []
+        if not self.rules:
+            rows.append("  (no header rules)")
+        for index, (host, key, value) in enumerate(self.rules):
+            marker = "▌" if index == self.cursor else " "
+            rows.append(f"{marker} {host:<26} {key:<16} {value}")
+        self.body = "\n".join(rows)
+        self.query_one("#settings-list", Static).update(self.body)
+        self.query_one("#settings-error", Static).update(self.error)
+
+    def add_rule(self, raw: str) -> None:
+        parts = [piece.strip() for piece in raw.split("|")]
+        if len(parts) != 3 or not all(parts):
+            self.error = f"  ⚠  write it as {HEADER_FORM}"
+            self._repaint()
+            return
+        host, key, value = parts
+        self.rules.append((host.lower(), key, value))
+        self.cursor = len(self.rules) - 1
+        self.error = ""
+        self._repaint()
+
+    def delete_selected(self) -> None:
+        if not self.rules:
+            return
+        del self.rules[self.cursor]
+        self.cursor = max(0, min(self.cursor, len(self.rules) - 1))
+        self._repaint()
+
+    def _close_editor(self) -> None:
+        self.editing = False
+        box = self.query_one("#settings-input", Input)
+        box.display = False
+        self.set_focus(None)
+        self._repaint()
+
+    def action_add(self) -> None:
+        if self.editing:
+            return
+        self.editing = True
+        box = self.query_one("#settings-input", Input)
+        box.display = True
+        box.value = ""
+        box.focus()
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        self.add_rule(self.query_one("#settings-input", Input).value)
+        if not self.error:
+            self._close_editor()
+
+    def action_delete(self) -> None:
+        if not self.editing:
+            self.delete_selected()
+
+    def _move(self, delta: int) -> None:
+        if self.editing or not self.rules:
+            return
+        self.cursor = (self.cursor + delta) % len(self.rules)
+        self._repaint()
+
+    def action_next(self) -> None:
+        self._move(1)
+
+    def action_previous(self) -> None:
+        self._move(-1)
+
+    def action_cancel(self) -> None:
+        if self.editing:
+            self._close_editor()
+            return
+        self.dismiss({})
+
+    def action_save(self) -> None:
+        if self.editing:
+            return
+        nested: dict[str, dict[str, str]] = {}
+        for host, key, value in self.rules:
+            nested.setdefault(host, {})[key] = value
+        self.dismiss({("headers",): nested})

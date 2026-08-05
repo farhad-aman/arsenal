@@ -3,7 +3,12 @@ from textual.app import App, ComposeResult
 from textual.widgets import Input, Static
 
 from dl import config, settings
-from dl.tui.settings import FormScreen, ProxyScreen, SettingsMenuScreen
+from dl.tui.settings import (
+    FormScreen,
+    HeadersScreen,
+    ProxyScreen,
+    SettingsMenuScreen,
+)
 
 
 @pytest.fixture
@@ -364,6 +369,95 @@ async def test_escape_returns_nothing_from_the_proxy_screen(cfg):
     async with app.run_test() as pilot:
         await pilot.pause()
         screen.add_domain("github.com")
+        await pilot.press("escape")
+        await pilot.pause()
+    assert app.result == {}
+
+
+RULES = {"indllserver.info": {"Referer": "https://indllserver.info/", "User-Agent": "Mozilla/5.0"}}
+
+
+async def test_headers_are_shown_as_flat_rows(cfg):
+    """Two levels of TOML nesting, one flat list — no sub-screen to drill into."""
+    screen = HeadersScreen(config.replace(cfg, headers=RULES))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert len(screen.rules) == 2
+        assert "indllserver.info" in screen.body
+        assert "Referer" in screen.body
+
+
+async def test_a_rule_can_be_added(cfg):
+    screen = HeadersScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_rule("e.com | X-Token | abc")
+        await pilot.pause()
+        assert ("e.com", "X-Token", "abc") in screen.rules
+
+
+async def test_a_rule_needs_all_three_parts(cfg):
+    screen = HeadersScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_rule("e.com | X-Token")
+        await pilot.pause()
+        assert screen.rules == []
+        assert "host | key | value" in screen.error
+
+
+async def test_a_rule_can_be_deleted(cfg):
+    screen = HeadersScreen(config.replace(cfg, headers=RULES))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.cursor = 0
+        screen.delete_selected()
+        await pilot.pause()
+        assert len(screen.rules) == 1
+
+
+async def test_the_a_key_opens_the_rule_editor(cfg):
+    screen = HeadersScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        assert screen.editing is True
+
+
+async def test_saving_rebuilds_the_nesting(cfg):
+    screen = HeadersScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_rule("e.com | Referer | https://e.com/")
+        screen.add_rule("e.com | X-Token | abc")
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+    assert app.result[("headers",)] == {
+        "e.com": {"Referer": "https://e.com/", "X-Token": "abc"}
+    }
+
+
+async def test_a_header_value_is_shown_because_you_are_editing_it(cfg):
+    screen = HeadersScreen(config.replace(cfg, headers={"e.com": {"Cookie": "s=SECRET"}}))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert "SECRET" in screen.body
+
+
+async def test_escape_returns_nothing_from_the_headers_screen(cfg):
+    screen = HeadersScreen(cfg)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_rule("e.com | X | y")
         await pilot.press("escape")
         await pilot.pause()
     assert app.result == {}
