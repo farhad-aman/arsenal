@@ -112,8 +112,11 @@ class YouTubeOptionsScreen(ModalScreen[Choices | None]):
             rows.append(f"{marker} {LABELS[field]:<20} ‹ {shown} ›")
         if self.values["subs"] == "hard" and not self.can_burn:
             rows.append("")
+            # Naming the wrong remedy is worse than naming none: homebrew-core
+            # has no libass, so `brew reinstall ffmpeg` rebuilds the same thing.
             rows.append("  ⚠  this ffmpeg cannot burn in subtitles (built without")
             rows.append("     libass) — soft subtitles will still work")
+            rows.append("     for hard subs: brew install homebrew-ffmpeg/ffmpeg/ffmpeg")
         self.body = "\n".join(rows)
         self.query_one("#yt-list", Static).update(self.body)
 

@@ -264,6 +264,11 @@ for inspection.
 **Broken config** — `dl` prints the TOML error with its line number and runs on
 defaults rather than refusing to start. A typo never blocks a download.
 
+**Hard subtitles fail on macOS** — homebrew-core's `ffmpeg` is built without
+libass, so it has no `subtitles` filter and `brew reinstall ffmpeg` produces the
+same binary. `brew install homebrew-ffmpeg/ffmpeg/ffmpeg` builds one that can.
+Soft subtitles need nothing extra.
+
 **Emoji look wrong or columns misalign** — set `ascii_icons = true`, or use
 `theme = "mono"`.
 

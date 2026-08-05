@@ -181,3 +181,21 @@ async def test_a_full_selection_round_trips():
     assert app.result.subs == "hard"
     assert app.result.sub_lang == "fa"
     assert app.result.container == "mkv"
+
+
+async def test_the_burn_in_warning_names_a_remedy_that_works():
+    """`brew reinstall ffmpeg` does not help: homebrew-core's formula has no
+    libass at all, so the rebuild produces the same binary."""
+    screen = YouTubeOptionsScreen("clip", can_burn=False)
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        for _ in range(2):
+            await pilot.press("down")
+        while screen.values["subs"] != "hard":
+            await pilot.press("right")
+        await pilot.pause()
+        text = screen.body
+        assert "libass" in text
+        assert "homebrew-ffmpeg" in text
+        assert "reinstall" not in text

@@ -294,3 +294,22 @@ def test_notify_reports_whether_it_got_through(monkeypatch):
         hook.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=1, stderr="nope")
     )
     assert hook.notify("t", "b") is False
+
+
+def test_the_record_remembers_it_went_through_a_proxy(cfg):
+    record = hook.build_record(status(), "complete", cfg, proxied=True)
+    assert record["proxy"] is True
+
+
+def test_a_direct_download_is_recorded_as_direct(cfg):
+    assert hook.build_record(status(), "complete", cfg)["proxy"] is False
+
+
+@pytest.mark.parametrize("options,expected", [
+    ({"all-proxy": "http://127.0.0.1:2080"}, True),
+    ({"http-proxy": "http://127.0.0.1:2080"}, True),
+    ({"all-proxy": ""}, False),
+    ({}, False),
+])
+def test_proxy_is_read_from_whichever_option_carried_it(options, expected):
+    assert hook.went_through_proxy(options) is expected

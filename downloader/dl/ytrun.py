@@ -109,7 +109,10 @@ def burn_in(state: Path, job: dict) -> str:
     if video is None or subtitles is None:
         return "no subtitle track to burn in"
     if not ytjob.burn_in_available():
-        return "this ffmpeg has no subtitles filter (built without libass)"
+        return (
+            "this ffmpeg has no subtitles filter (built without libass) — "
+            "brew install homebrew-ffmpeg/ffmpeg/ffmpeg"
+        )
     argv, out = ytjob.burn_command(video, subtitles)
     done = subprocess.run(
         argv, capture_output=True, text=True, check=False, cwd=str(directory)
@@ -169,6 +172,7 @@ def finalize(state: Path, job: dict, code: int, cfg) -> dict:
             "category": "video",
             "url": job["url"],
             "status": "ok",
+            "proxy": bool(job.get("proxy")),
         },
         STATE_DIR / "history.jsonl",
     )

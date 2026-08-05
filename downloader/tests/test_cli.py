@@ -447,3 +447,74 @@ def test_each_url_is_judged_on_its_own_host(sandbox_cfg):
     cli.cmd_add(["https://blocked.com/a.iso", "https://open.com/b.iso"], cfg, client, None)
     assert client.added[0][1]["all-proxy"] == cfg.proxy
     assert "all-proxy" not in client.added[1][1]
+
+
+def proxied_status(gid="g1", name="a.iso"):
+    return {
+        "gid": gid,
+        "status": "active",
+        "totalLength": "1000",
+        "completedLength": "500",
+        "downloadSpeed": "100",
+        "files": [{"path": f"/tmp/{name}", "uris": [{"uri": f"https://e.com/{name}"}]}],
+    }
+
+
+class OptionClient(FakeClient):
+    def __init__(self, options=None):
+        super().__init__()
+        self.options = options or {}
+
+    def get_option(self, gid):
+        return self.options.get(gid, {})
+
+
+def test_ls_badges_a_proxied_download(sandbox_cfg, capsys):
+    client = OptionClient({"g1": {"all-proxy": "http://127.0.0.1:2080"}})
+    client.active = [proxied_status()]
+    cli.cmd_ls(sandbox_cfg, client, use_color=False)
+    assert "🌐" in capsys.readouterr().out
+
+
+def test_ls_leaves_a_direct_download_unbadged(sandbox_cfg, capsys):
+    client = OptionClient()
+    client.active = [proxied_status()]
+    cli.cmd_ls(sandbox_cfg, client, use_color=False)
+    assert "🌐" not in capsys.readouterr().out
+
+
+def test_ls_uses_a_text_badge_in_ascii_mode(sandbox_cfg, capsys):
+    cfg = config.replace(
+        sandbox_cfg, general=config.replace(sandbox_cfg.general, ascii_icons=True)
+    )
+    client = OptionClient({"g1": {"all-proxy": "http://127.0.0.1:2080"}})
+    client.active = [proxied_status()]
+    cli.cmd_ls(cfg, client, use_color=False)
+    out = capsys.readouterr().out
+    assert "[proxy]" in out
+    assert "🌐" not in out
+
+
+def test_ls_keeps_the_existing_columns_where_they_were(sandbox_cfg, capsys):
+    """`dl ls | grep paused` has to keep working, so the badge goes on the end."""
+    client = OptionClient({"g1": {"all-proxy": "http://127.0.0.1:2080"}})
+    client.active = [proxied_status()]
+    cli.cmd_ls(sandbox_cfg, client, use_color=False)
+    line = capsys.readouterr().out.splitlines()[0]
+    assert line.startswith("g1")
+    assert line.split()[1] == "active"
+    assert line.rstrip().endswith("🌐")
+
+
+def test_ls_survives_a_daemon_that_will_not_say(sandbox_cfg, capsys):
+    """Options are a second round trip; losing it must not lose the listing."""
+    from dl.rpc import Aria2Unreachable
+
+    class Refusing(OptionClient):
+        def get_option(self, gid):
+            raise Aria2Unreachable("gone")
+
+    client = Refusing()
+    client.active = [proxied_status()]
+    assert cli.cmd_ls(sandbox_cfg, client, use_color=False) == 0
+    assert "a.iso" in capsys.readouterr().out

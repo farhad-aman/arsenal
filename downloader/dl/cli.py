@@ -127,6 +127,20 @@ def _rows(client) -> list[dict]:
     return list(client.tell_active()) + list(client.tell_waiting()) + list(client.tell_stopped())
 
 
+def _proxy_badge(client, gid: str, cfg: Config) -> str:
+    """Whether a download is proxied lives in its options, which the status
+    call does not carry, so it costs a second round trip per row."""
+    from .hook import went_through_proxy
+
+    try:
+        options = client.get_option(gid)
+    except (Aria2Error, Aria2Unreachable, AttributeError):
+        return ""
+    if not went_through_proxy(options):
+        return ""
+    return "  [proxy]" if cfg.general.ascii_icons else "  🌐"
+
+
 def cmd_ls(cfg: Config, client, use_color: bool) -> int:
     for item in _rows(client):
         total = int(item.get("totalLength", 0) or 0)
@@ -134,9 +148,12 @@ def cmd_ls(cfg: Config, client, use_color: bool) -> int:
         pct = int(done * 100 / total) if total else 0
         files = item.get("files") or [{}]
         name = Path(files[0].get("path", "")).name or "(pending)"
+        # The badge goes last so every existing column keeps its position and
+        # `dl ls | grep paused` still works.
+        via = _proxy_badge(client, item.get("gid", ""), cfg)
         print(
             f"{item.get('gid', ''):<18} {item.get('status', ''):<9} {pct:>3}% "
-            f"{human_bytes(total):>10} {human_speed(int(item.get('downloadSpeed', 0) or 0)):>12}  {name}"
+            f"{human_bytes(total):>10} {human_speed(int(item.get('downloadSpeed', 0) or 0)):>12}  {name}{via}"
         )
     return 0
 

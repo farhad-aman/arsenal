@@ -132,3 +132,17 @@ def test_remove_entry_keeps_the_file_valid_jsonl(tmp_path):
     history.remove_entry(log, record(name="f2", ts=2))
     for line in log.read_text().splitlines():
         json.loads(line)
+
+
+def test_a_proxied_record_is_badged(th):
+    from dl.tui.completed import render_entry
+
+    record = {"name": "a.iso", "status": "ok", "bytes": 10, "ts": 1, "path": "", "proxy": True}
+    assert "🌐" in render_entry(record, th, selected=False, now=2)
+
+
+def test_a_direct_record_is_not_badged(th):
+    from dl.tui.completed import render_entry
+
+    record = {"name": "a.iso", "status": "ok", "bytes": 10, "ts": 1, "path": ""}
+    assert "🌐" not in render_entry(record, th, selected=False, now=2)

@@ -24,7 +24,8 @@ def render_entry(record: dict, theme: Theme, selected: bool, now: int) -> str:
     category = record.get("category", "")
     age = human_duration(max(now - int(record.get("ts", 0) or 0), 0))
     missing = "" if _exists(record) else "  (file gone)"
-    line = f"{marker} {mark}  {name:<44} {size:>10}  {category:<9} {age} ago{missing}"
+    via = "  🌐" if record.get("proxy") else ""
+    line = f"{marker} {mark}  {name:<44} {size:>10}  {category:<9} {age} ago{missing}{via}"
     if theme.mono:
         return line
     color = theme.ok if ok else theme.danger
