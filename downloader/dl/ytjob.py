@@ -66,7 +66,17 @@ def list_jobs(directory: Path) -> list[dict]:
     return jobs
 
 
-def command(job: dict) -> list[str]:
+def scratch_dir(state: Path, job: dict) -> Path:
+    """Fragments live here, never in the destination: two jobs sharing a folder
+    would otherwise be indistinguishable from each other's leftovers."""
+    return state / f"{job['id']}.part"
+
+
+def result_marker(state: Path, job: dict) -> Path:
+    return state / f"{job['id']}.final"
+
+
+def command(job: dict, state: Path) -> list[str]:
     """yt-dlp invocation for this job, transfers delegated to aria2c."""
     argv = ["yt-dlp", "--newline", "--no-colors", "--ignore-errors"]
     argv += ["--downloader", "aria2c"]
@@ -77,9 +87,22 @@ def command(job: dict) -> list[str]:
         # YouTube refuses anonymous requests with "confirm you're not a bot".
         argv += ["--cookies-from-browser", job["cookies_from"]]
     argv += build_args(choices_of(job))
-    argv += ["-o", str(Path(job["dir"]) / OUTPUT_TEMPLATE)]
+    argv += ["-P", f"home:{job['dir']}", "-P", f"temp:{scratch_dir(state, job)}"]
+    # yt-dlp knows exactly what it produced; guessing from the folder does not.
+    argv += ["--print-to-file", "after_move:filepath", str(result_marker(state, job))]
+    argv += ["-o", OUTPUT_TEMPLATE]
     argv.append(job["url"])
     return argv
+
+
+def produced_file(state: Path, job: dict) -> Path | None:
+    marker = result_marker(state, job)
+    try:
+        line = marker.read_text(encoding="utf-8").strip().splitlines()[-1]
+    except (OSError, IndexError):
+        return None
+    landed = Path(line)
+    return landed if landed.is_file() else None
 
 
 def _countable(path: Path) -> bool:
@@ -94,17 +117,9 @@ def bytes_on_disk(directory: Path) -> int:
     return sum(p.stat().st_size for p in directory.iterdir() if _countable(p))
 
 
-def final_file(directory: Path) -> Path | None:
-    if not directory.is_dir():
-        return None
-    media = [
-        p
-        for p in directory.iterdir()
-        if _countable(p)
-        and not p.name.endswith(SUBTITLE_SUFFIXES)
-        and not p.name.endswith(".part")
-    ]
-    return max(media, key=lambda p: p.stat().st_size, default=None)
+def clean_scratch(state: Path, job: dict) -> None:
+    shutil.rmtree(scratch_dir(state, job), ignore_errors=True)
+    result_marker(state, job).unlink(missing_ok=True)
 
 
 def burn_command(video: Path, subtitles: Path) -> tuple[list[str], Path]:

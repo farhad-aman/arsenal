@@ -51,8 +51,8 @@ def test_listing_skips_a_corrupt_job_file(tmp_path):
     assert len(ytjob.list_jobs(tmp_path)) == 1
 
 
-def test_command_runs_yt_dlp_through_aria2c(job):
-    argv = ytjob.command(job)
+def test_command_runs_yt_dlp_through_aria2c(job, tmp_path):
+    argv = ytjob.command(job, tmp_path)
     assert argv[0] == "yt-dlp"
     assert argv[argv.index("--downloader") + 1] == "aria2c"
     assert job["url"] == argv[-1]
@@ -61,43 +61,56 @@ def test_command_runs_yt_dlp_through_aria2c(job):
 def test_command_carries_the_chosen_options(tmp_path):
     picked = Choices("1080", "best", "soft", "fa", "mkv")
     job = ytjob.new_job("https://youtu.be/abc", tmp_path, picked)
-    argv = ytjob.command(job)
+    argv = ytjob.command(job, tmp_path)
     assert "height<=1080" in argv[argv.index("-f") + 1]
     assert argv[argv.index("--sub-langs") + 1] == "fa"
     assert argv[argv.index("--merge-output-format") + 1] == "mkv"
 
 
-def test_command_writes_into_the_chosen_directory(tmp_path, job):
-    argv = ytjob.command(job)
-    template = argv[argv.index("-o") + 1]
-    assert template.startswith(str(tmp_path / "dest"))
-    assert "%(title)s" in template
+def test_command_sends_the_finished_file_to_the_chosen_directory(tmp_path, job):
+    argv = ytjob.command(job, tmp_path)
+    assert f"home:{tmp_path / 'dest'}" in argv
+    assert "%(title)s" in argv[argv.index("-o") + 1]
 
 
-def test_command_never_stops_on_the_first_error_of_a_playlist(job):
-    assert "--ignore-errors" in ytjob.command(job)
+def test_command_keeps_fragments_out_of_the_destination(tmp_path, job):
+    """Two jobs sharing a folder would otherwise see each other's leftovers."""
+    argv = ytjob.command(job, tmp_path)
+    scratch = f"temp:{ytjob.scratch_dir(tmp_path, job)}"
+    assert scratch in argv
+    assert str(tmp_path / "dest") not in scratch
+
+
+def test_command_asks_yt_dlp_to_report_the_file_it_produced(tmp_path, job):
+    argv = ytjob.command(job, tmp_path)
+    assert argv[argv.index("--print-to-file") + 1] == "after_move:filepath"
+    assert str(ytjob.result_marker(tmp_path, job)) in argv
+
+
+def test_command_never_stops_on_the_first_error_of_a_playlist(job, tmp_path):
+    assert "--ignore-errors" in ytjob.command(job, tmp_path)
 
 
 def test_command_passes_the_proxy_when_the_job_wants_one(tmp_path):
     job = ytjob.new_job("https://youtu.be/a", tmp_path, DEFAULTS, proxy="http://127.0.0.1:2080")
-    argv = ytjob.command(job)
+    argv = ytjob.command(job, tmp_path)
     assert argv[argv.index("--proxy") + 1] == "http://127.0.0.1:2080"
 
 
-def test_command_omits_the_proxy_by_default(job):
-    assert "--proxy" not in ytjob.command(job)
+def test_command_omits_the_proxy_by_default(job, tmp_path):
+    assert "--proxy" not in ytjob.command(job, tmp_path)
 
 
 def test_command_borrows_browser_cookies_when_configured(tmp_path):
     """YouTube refuses anonymous requests with 'confirm you're not a bot'."""
     job = ytjob.new_job("https://youtu.be/a", tmp_path, DEFAULTS, cookies_from="chrome")
-    argv = ytjob.command(job)
+    argv = ytjob.command(job, tmp_path)
     assert argv[argv.index("--cookies-from-browser") + 1] == "chrome"
 
 
 def test_command_sends_no_cookies_when_disabled(tmp_path):
     job = ytjob.new_job("https://youtu.be/a", tmp_path, DEFAULTS, cookies_from="")
-    assert "--cookies-from-browser" not in ytjob.command(job)
+    assert "--cookies-from-browser" not in ytjob.command(job, tmp_path)
 
 
 def test_progress_sums_the_partial_files(tmp_path):
@@ -127,18 +140,38 @@ def test_progress_of_a_missing_directory_is_zero(tmp_path):
     assert ytjob.bytes_on_disk(tmp_path / "gone") == 0
 
 
-def test_finished_file_is_the_largest_media_file(tmp_path):
-    dest = tmp_path / "d"
-    dest.mkdir()
-    (dest / "clip.mp4").write_bytes(b"x" * 900)
-    (dest / "clip.en.vtt").write_bytes(b"s" * 10)
-    assert ytjob.final_file(dest).name == "clip.mp4"
+def test_produced_file_comes_from_what_yt_dlp_reported(tmp_path, job):
+    landed = tmp_path / "clip.mp4"
+    landed.write_bytes(b"x" * 900)
+    ytjob.result_marker(tmp_path, job).write_text(f"{landed}\n")
+    assert ytjob.produced_file(tmp_path, job) == landed
 
 
-def test_no_final_file_in_an_empty_directory(tmp_path):
-    dest = tmp_path / "d"
-    dest.mkdir()
-    assert ytjob.final_file(dest) is None
+def test_produced_file_ignores_a_path_that_is_not_there(tmp_path, job):
+    ytjob.result_marker(tmp_path, job).write_text(f"{tmp_path / 'gone.mp4'}\n")
+    assert ytjob.produced_file(tmp_path, job) is None
+
+
+def test_produced_file_without_a_marker_is_none(tmp_path, job):
+    assert ytjob.produced_file(tmp_path, job) is None
+
+
+def test_produced_file_takes_the_last_line_for_a_playlist(tmp_path, job):
+    first, second = tmp_path / "a.mp4", tmp_path / "b.mp4"
+    for f in (first, second):
+        f.write_bytes(b"x")
+    ytjob.result_marker(tmp_path, job).write_text(f"{first}\n{second}\n")
+    assert ytjob.produced_file(tmp_path, job) == second
+
+
+def test_clean_scratch_removes_the_workspace_and_marker(tmp_path, job):
+    scratch = ytjob.scratch_dir(tmp_path, job)
+    scratch.mkdir(parents=True)
+    (scratch / "frag.part").write_bytes(b"x")
+    ytjob.result_marker(tmp_path, job).write_text("x")
+    ytjob.clean_scratch(tmp_path, job)
+    assert not scratch.exists()
+    assert not ytjob.result_marker(tmp_path, job).exists()
 
 
 def test_burn_command_targets_the_subtitle_and_writes_beside_it(tmp_path):

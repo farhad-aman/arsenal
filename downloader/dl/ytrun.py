@@ -16,10 +16,10 @@ def _update(state: Path, job: dict, **fields) -> dict:
     return job
 
 
-def burn_in(job: dict) -> str:
+def burn_in(state: Path, job: dict) -> str:
     """Render the subtitle track into the picture, replacing the original."""
     directory = Path(job["dir"])
-    video = ytjob.final_file(directory)
+    video = ytjob.produced_file(state, job)
     subtitles = ytjob.subtitle_for(directory, ytjob.choices_of(job).sub_lang)
     if video is None or subtitles is None:
         return "no subtitle track to burn in"
@@ -59,11 +59,11 @@ def finalize(state: Path, job: dict, code: int, cfg) -> dict:
 
     if ytjob.wants_burn_in(job):
         _update(state, job, status="burning")
-        problem = burn_in(job)
+        problem = burn_in(state, job)
         if problem:
             return _update(state, job, status="error", error=problem)
 
-    landed = ytjob.final_file(directory)
+    landed = ytjob.produced_file(state, job)
     job = _update(
         state,
         job,
@@ -72,6 +72,7 @@ def finalize(state: Path, job: dict, code: int, cfg) -> dict:
         title=landed.stem if landed else job.get("title", ""),
         done=landed.stat().st_size if landed else job["done"],
     )
+    ytjob.clean_scratch(state, job)
     history.append(
         {
             "ts": int(time.time()),
@@ -105,7 +106,7 @@ def main(argv: list[str]) -> int:
     try:
         with open(log, "wb") as sink:
             proc = subprocess.Popen(
-                ytjob.command(job),
+                ytjob.command(job, state),
                 stdout=sink,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,
@@ -116,10 +117,11 @@ def main(argv: list[str]) -> int:
         return 1
 
     _update(state, job, status="active", pid=proc.pid)
+    scratch = ytjob.scratch_dir(state, job)
     last, moved_at = 0, time.monotonic()
     while proc.poll() is None:
         time.sleep(POLL)
-        done = ytjob.bytes_on_disk(directory)
+        done = ytjob.bytes_on_disk(scratch)
         now = time.monotonic()
         speed = int((done - last) / max(now - moved_at, 0.001)) if done > last else 0
         if done != last:
