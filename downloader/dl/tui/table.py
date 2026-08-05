@@ -26,6 +26,7 @@ class Row:
     path: Path
     conns: int
     error: str
+    url: str = ""
     proxied: bool = False
     history: list[int] = field(default_factory=list)
 
@@ -57,6 +58,7 @@ def row_from_status(item: dict, cfg: Config, proxied: bool = False) -> Row:
         path=path,
         conns=int(item.get("connections", 0) or 0),
         error=item.get("errorMessage", "") or "",
+        url=url,
         proxied=proxied,
     )
 
@@ -84,6 +86,7 @@ def row_from_job(job: dict, cfg: Config) -> Row:
         path=landed if landed.name else Path(job.get("dir", "")),
         conns=0,
         error=job.get("error", "") or "",
+        url=job.get("url", ""),
     )
 
 

@@ -14,6 +14,7 @@ from ..config import STATE_DIR, Config
 from ..format import human_bytes
 from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import CompletedTable, record_path
+from . import ytflow
 from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal
 from .status import StatusBar, stats_from
 from .table import DownloadTable, row_from_job, row_from_status
@@ -222,8 +223,31 @@ class DlApp(App):
         row = self._selected()
         if row is None or row.status != "error":
             return
-        resolution = routing.resolve("", row.name, self.cfg)
-        self.client.add_uri([str(row.path)], cli.add_options(self.cfg, resolution))
+        if row.gid.startswith("yt-"):
+            self._retry_youtube(row)
+            return
+        if not row.url:
+            self.notify(f"{row.name}: no source URL to retry", severity="warning")
+            return
+        resolution = routing.resolve(row.url, row.name, self.cfg)
+        try:
+            self.client.add_uri([row.url], cli.add_options(self.cfg, resolution))
+        except (Aria2Error, Aria2Unreachable) as exc:
+            self.notify(f"retry failed: {exc}", severity="error")
+            return
+        self.notify(f"retrying {row.name}")
+
+    def _retry_youtube(self, row) -> None:
+        job_file = STATE_DIR / "yt" / f"{row.gid}.json"
+        try:
+            job = ytjob.read(job_file)
+        except (OSError, ValueError):
+            self.notify(f"{row.name}: job record is gone", severity="warning")
+            return
+        job.update(status="queued", error="", done=0, speed=0, pid=0)
+        ytjob.save(STATE_DIR / "yt", job)
+        ytflow.spawn(job, STATE_DIR)
+        self.notify(f"retrying {Path(job['url']).name or job['url']}")
 
     def action_open(self) -> None:
         path = self._selected_path()

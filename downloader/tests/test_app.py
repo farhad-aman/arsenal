@@ -483,6 +483,79 @@ async def test_the_splash_still_shows_when_nothing_at_all_is_running(cfg, tmp_pa
         assert "d o w n l o a d e r" in app.table.text
 
 
+async def test_retry_resends_the_original_url_not_the_local_path(cfg):
+    """add_uri needs the source URL; the destination path is not a URI."""
+    client = FakeClient()
+    client.active[0].update(status="error", errorMessage="HTTP 403")
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        assert client.add_calls[0][0] == ["https://e.com/a.iso"]
+
+
+async def test_retry_without_a_known_url_queues_nothing(cfg):
+    client = FakeClient()
+    client.active[0].update(status="error", errorMessage="boom")
+    client.active[0]["files"][0]["uris"] = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        assert client.add_calls == []
+
+
+async def test_retry_survives_a_daemon_that_refuses(cfg):
+    """An RPC fault must not tear the dashboard down with a traceback."""
+    from dl.rpc import Aria2Unreachable
+
+    class Refusing(FakeClient):
+        def add_uri(self, uris, options):
+            raise Aria2Unreachable("HTTP 400")
+
+    client = Refusing()
+    client.active[0].update(status="error", errorMessage="boom")
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        assert app.is_running is True
+
+
+async def test_retrying_a_youtube_row_respawns_its_job(cfg, tmp_path, monkeypatch):
+    from dl import ytjob
+    from dl.tui import app as app_module
+    from dl.youtube import DEFAULTS
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    spawned = []
+    monkeypatch.setattr(app_module.ytflow, "spawn", lambda job, state=None: spawned.append(job))
+
+    job = ytjob.new_job("https://youtu.be/abc", tmp_path / "out", DEFAULTS)
+    job.update(status="error", error="Connection refused", done=99)
+    saved = ytjob.save(tmp_path / "yt", job)
+
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("r")
+        await pilot.pause()
+        assert client.add_calls == [], "must not go anywhere near aria2"
+        assert spawned and spawned[0]["id"] == job["id"]
+        assert ytjob.read(saved)["status"] == "queued"
+        assert ytjob.read(saved)["error"] == ""
+
+
 async def test_a_failed_youtube_job_stays_visible(cfg, tmp_path, monkeypatch):
     """A job that vanished on error looks exactly like one that never started."""
     from dl import ytjob
