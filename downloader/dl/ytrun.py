@@ -12,6 +12,16 @@ from .hook import notify
 POLL = 0.5
 WINDOW = 3.0
 PROBE_TIMEOUT = 60
+STAND_DOWN = ("cancelled", "paused")
+
+
+def stand_down(status: str) -> bool:
+    """Statuses meaning let go of yt-dlp without calling the download failed.
+
+    The dashboard sets these and waits; terminating yt-dlp ourselves would race
+    the poll loop into finalize(), which would record a pause as an error.
+    """
+    return status in STAND_DOWN
 
 
 def rate(samples: deque, done: int, now: float | None = None) -> int:
@@ -190,7 +200,7 @@ def main(argv: list[str]) -> int:
         time.sleep(POLL)
         done = ytjob.bytes_on_disk(scratch)
         current = ytjob.read(state / f"{job['id']}.json")
-        if current.get("status") == "cancelled":
+        if stand_down(current.get("status", "")):
             proc.terminate()
             return 0
         job.update(current)

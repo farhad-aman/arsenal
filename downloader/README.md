@@ -142,13 +142,18 @@ downloads queued later from anywhere. `-p` is the only thing that decides.
 |---|---|---|---|---|
 | `a` | add URL (prefilled from clipboard) | | `space` | pause/resume selected |
 | `J` / `K` | reorder in queue | | | |
-| `l` | speed limit for the selected download | | `r` | retry a failed download |
+| `l` | speed limit (aria2 downloads only) | | `r` | retry a failed download |
 | `o` | open the file | | `f` | reveal in Finder |
 | `p` / `u` | pause all / resume all | | `d` | delete: from list, or disk too |
 | `tab` | Active ⇄ Completed | | `enter` | expand row detail |
 | `↑` / `↓` | move cursor | | `q` | quit — downloads keep running |
 
-Speed limits apply to one download at a time — there is no global throttle.
+Speed limits apply to one download at a time — there is no global throttle, and
+they reach aria2 downloads only.
+
+YouTube downloads share the table but not aria2's queue: `space` pauses and
+resumes them by stopping yt-dlp and picking the fragments back up, and `J`/`K`
+do not apply because they start immediately rather than queueing.
 
 Mouse works too: click to select and scroll.
 

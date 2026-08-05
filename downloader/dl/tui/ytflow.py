@@ -35,6 +35,13 @@ def spawn(job: dict, state: Path = None) -> None:
     )
 
 
+def resume(job: dict, state: Path = None) -> None:
+    """Pick a paused job back up. Fragments live in the scratch directory, which
+    a pause leaves alone, so yt-dlp continues rather than starting over."""
+    job.update(status="queued", speed=0, error="")
+    spawn(job, state)
+
+
 class YouTubeSetupApp(App):
     """Asks what to download, then where to put it, one video at a time."""
 

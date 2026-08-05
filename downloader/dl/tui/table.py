@@ -63,7 +63,13 @@ def row_from_status(item: dict, cfg: Config, proxied: bool = False) -> Row:
     )
 
 
+YT_PREFIX = "yt-"
 YT_STATUS = {"queued": "waiting", "active": "active", "burning": "active"}
+
+
+def is_youtube_row(row: Row) -> bool:
+    """yt-dlp jobs share the table with aria2 downloads but none of its RPC."""
+    return row.gid.startswith(YT_PREFIX)
 
 
 def row_from_job(job: dict, cfg: Config) -> Row:
@@ -89,6 +95,7 @@ def row_from_job(job: dict, cfg: Config) -> Row:
         conns=0,
         error=job.get("error", "") or "",
         url=job.get("url", ""),
+        proxied=bool(job.get("proxy")),
     )
 
 

@@ -102,3 +102,17 @@ def test_last_error_is_capped(tmp_path):
     log = tmp_path / "job.log"
     log.write_text("ERROR: " + "x" * 5000)
     assert len(ytrun.last_error(log)) <= 300
+
+
+def test_the_supervisor_stands_down_when_the_job_is_paused():
+    """Pausing must not be recorded as a failure — the dashboard resumes from
+    the record, and an errored job would offer retry instead."""
+    assert ytrun.stand_down("paused") is True
+
+
+def test_the_supervisor_stands_down_when_the_job_is_cancelled():
+    assert ytrun.stand_down("cancelled") is True
+
+
+def test_the_supervisor_keeps_going_while_the_job_is_active():
+    assert ytrun.stand_down("active") is False

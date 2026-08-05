@@ -209,6 +209,17 @@ def wants_burn_in(job: dict) -> bool:
     return burns_in(choices_of(job))
 
 
+def pause(directory: Path, job: dict) -> dict:
+    """Record the pause and let the supervisor act on it.
+
+    Signalling yt-dlp from here would race the supervisor's poll loop into
+    finalize(), which reads a terminated process as a failed download.
+    """
+    job.update(status="paused", speed=0)
+    save(directory, job)
+    return job
+
+
 def stop(job: dict) -> None:
     """Cancel a running job. The supervisor watches for this status and takes
     yt-dlp down with it, so the process group dies with the record."""

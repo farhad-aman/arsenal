@@ -1,5 +1,8 @@
 import functools
+import os
 import shutil
+import subprocess
+import sys
 import threading
 import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -210,3 +213,55 @@ def test_a_picked_destination_survives_completion(env, fileserver):
     record = history.tail(log, 5)[-1]
     assert Path(record["path"]).parent == picked
     assert not (cfg.categories["iso"].dir / "sample.iso").exists()
+
+
+def fake_ytdlp(directory: Path) -> Path:
+    """A yt-dlp that simulates instantly and then downloads forever."""
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / "yt-dlp"
+    script.write_text(
+        "#!/bin/sh\n"
+        'case " $* " in *" --simulate "*) echo clip; echo /tmp/clip.mp4; echo 100; exit 0;; esac\n'
+        "sleep 120\n"
+    )
+    script.chmod(0o755)
+    return script
+
+
+def test_pausing_a_youtube_job_is_not_recorded_as_a_failure(tmp_path, monkeypatch):
+    """The supervisor has to let go of yt-dlp itself. Signalling it from the
+    dashboard would race the poll loop into finalize(), and a pause would come
+    back as an error the user is invited to retry."""
+    from dl import ytjob
+    from dl.youtube import DEFAULTS
+
+    state = tmp_path / "state"
+    jobs = state / "yt"
+    env = dict(os.environ, DL_STATE_DIR=str(state), XDG_CONFIG_HOME=str(tmp_path / "cfg"))
+    env["PATH"] = f"{fake_ytdlp(tmp_path / 'bin')}".rsplit("/", 1)[0] + os.pathsep + env["PATH"]
+
+    job = ytjob.new_job("https://youtu.be/abc", tmp_path / "out", DEFAULTS)
+    record = ytjob.save(jobs, job)
+
+    supervisor = subprocess.Popen(
+        [sys.executable, "-m", "dl.ytrun", str(record)],
+        env=env,
+        cwd=str(Path(__file__).resolve().parent.parent),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        assert wait_for(lambda: ytjob.read(record).get("status") == "active", timeout=20)
+        downloader = ytjob.read(record)["pid"]
+        assert ytjob.running(downloader)
+
+        ytjob.pause(jobs, ytjob.read(record))
+
+        assert wait_for(lambda: supervisor.poll() is not None, timeout=20), supervisor.stdout.read()
+        assert supervisor.returncode == 0
+        assert wait_for(lambda: not ytjob.running(downloader), timeout=10)
+        assert ytjob.read(record)["status"] == "paused"
+    finally:
+        if supervisor.poll() is None:
+            supervisor.kill()

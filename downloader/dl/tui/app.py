@@ -17,7 +17,7 @@ from .completed import CompletedTable, record_path
 from . import ytflow
 from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal
 from .status import StatusBar, stats_from
-from .table import DownloadTable, row_from_job, row_from_status
+from .table import DownloadTable, is_youtube_row, row_from_job, row_from_status
 
 SPLASH = """\
                     ██████╗ ██╗
@@ -196,34 +196,69 @@ class DlApp(App):
         row = self._selected()
         if row is None:
             return
-        if row.status == "paused":
+        if is_youtube_row(row):
+            self._toggle_youtube(row)
+        elif row.status == "paused":
             self.client.unpause(row.gid)
         else:
             self.client.pause(row.gid)
 
     def action_pause_all(self) -> None:
         for row in self.table.rows:
-            self.client.pause(row.gid)
+            if is_youtube_row(row):
+                self._pause_youtube(row)
+            else:
+                self.client.pause(row.gid)
 
     def action_resume_all(self) -> None:
         for row in self.table.rows:
-            self.client.unpause(row.gid)
+            if is_youtube_row(row):
+                if row.status == "paused":
+                    self._resume_youtube(row)
+            else:
+                self.client.unpause(row.gid)
+
+    def _job_for(self, row) -> dict | None:
+        return next(
+            (j for j in ytjob.list_jobs(STATE_DIR / "yt") if j.get("id") == row.gid), None
+        )
+
+    def _toggle_youtube(self, row) -> None:
+        if row.status == "paused":
+            self._resume_youtube(row)
+        else:
+            self._pause_youtube(row)
+
+    def _pause_youtube(self, row) -> None:
+        job = self._job_for(row)
+        if job is not None:
+            ytjob.pause(STATE_DIR / "yt", job)
+
+    def _resume_youtube(self, row) -> None:
+        job = self._job_for(row)
+        if job is not None:
+            ytflow.resume(job, STATE_DIR)
 
     def action_move_down(self) -> None:
-        row = self._selected()
-        if row:
-            self.client.change_position(row.gid, 1, "POS_CUR")
+        self._reorder(1)
 
     def action_move_up(self) -> None:
+        self._reorder(-1)
+
+    def _reorder(self, offset: int) -> None:
         row = self._selected()
-        if row:
-            self.client.change_position(row.gid, -1, "POS_CUR")
+        if row is None:
+            return
+        if is_youtube_row(row):
+            self.notify("YouTube downloads start at once — there is no queue to move in")
+            return
+        self.client.change_position(row.gid, offset, "POS_CUR")
 
     def action_retry(self) -> None:
         row = self._selected()
         if row is None or row.status != "error":
             return
-        if row.gid.startswith("yt-"):
+        if is_youtube_row(row):
             self._retry_youtube(row)
             return
         if not row.url:
@@ -231,7 +266,9 @@ class DlApp(App):
             return
         resolution = routing.resolve(row.url, row.name, self.cfg)
         try:
-            self.client.add_uri([row.url], cli.add_options(self.cfg, resolution))
+            self.client.add_uri(
+                [row.url], cli.add_options(self.cfg, resolution, proxy=row.proxied)
+            )
         except (Aria2Error, Aria2Unreachable) as exc:
             self.notify(f"retry failed: {exc}", severity="error")
             return
@@ -366,6 +403,9 @@ class DlApp(App):
         row = self._selected()
         if row is None:
             return
+        if is_youtube_row(row):
+            self.notify("speed limits reach aria2 only — a YouTube job has none to change")
+            return
 
         def apply(rate: str | None) -> None:
             if rate is None:
@@ -425,7 +465,7 @@ class DlApp(App):
         row = self._selected()
         if row is None:
             return
-        if row.gid.startswith("yt-"):
+        if is_youtube_row(row):
             self._delete_youtube(row)
             return
         has_file = bool(row.path) and row.path.exists()

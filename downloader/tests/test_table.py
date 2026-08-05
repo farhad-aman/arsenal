@@ -197,6 +197,35 @@ def test_render_row_queued_uses_spinner_frame(cfg, th):
     assert SPINNER[3] in joined
 
 
+def yt_job(**over):
+    base = {
+        "id": "yt-1",
+        "url": "https://youtu.be/abc",
+        "dir": "/tmp",
+        "status": "active",
+        "title": "clip",
+        "choices": {"container": "mp4"},
+        "total": 1000,
+        "done": 500,
+        "speed": 100,
+        "proxy": "",
+    }
+    base.update(over)
+    return base
+
+
+def test_row_from_job_marks_a_proxied_youtube_download(cfg):
+    from dl.tui.table import row_from_job
+
+    assert row_from_job(yt_job(proxy="http://127.0.0.1:2080"), cfg).proxied is True
+
+
+def test_row_from_job_leaves_a_direct_youtube_download_unbadged(cfg):
+    from dl.tui.table import row_from_job
+
+    assert row_from_job(yt_job(), cfg).proxied is False
+
+
 def test_render_row_escapes_markup_in_filename(cfg, th):
     row = row_from_status(
         status(files=[{"path": "/tmp/[bold]sneaky.iso", "uris": []}]), cfg

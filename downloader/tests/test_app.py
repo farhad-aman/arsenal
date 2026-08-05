@@ -19,6 +19,7 @@ class FakeClient:
         self.removal_status = "removed"
         self.options = {}
         self.option_calls = []
+        self.option_changes = []
         self.add_calls = []
         self.active = [
             {
@@ -79,6 +80,7 @@ class FakeClient:
         return 0
 
     def change_option(self, gid, options):
+        self.option_changes.append((gid, options))
         return "OK"
 
     def change_global_option(self, options):
@@ -626,6 +628,169 @@ async def test_a_finished_youtube_job_leaves_the_list(cfg, tmp_path, monkeypatch
         await pilot.pause()
         await app.refresh_data()
         assert app.table.rows == []
+
+
+def plant_job(tmp_path, monkeypatch, status="active", **over):
+    """A yt-dlp job on disk where the dashboard will find it, plus the list of
+    jobs any respawn lands in."""
+    from dl import ytjob
+    from dl.tui import app as app_module
+    from dl.youtube import DEFAULTS
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path)
+    spawned = []
+    monkeypatch.setattr(app_module.ytflow, "spawn", lambda job, state=None: spawned.append(job))
+
+    job = ytjob.new_job("https://youtu.be/abc", tmp_path / "out", DEFAULTS)
+    job.update(status=status, **over)
+    saved = ytjob.save(tmp_path / "yt", job)
+    return job, saved, spawned
+
+
+def read_job(saved):
+    from dl import ytjob
+
+    return ytjob.read(saved)
+
+
+async def test_space_on_a_youtube_row_never_reaches_aria2(cfg, tmp_path, monkeypatch):
+    """aria2 has never heard of a yt- gid, so pausing one used to fault the RPC
+    and take the dashboard down with it."""
+    _job, saved, _spawned = plant_job(tmp_path, monkeypatch)
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("space")
+        await pilot.pause()
+    assert client.paused == []
+    assert read_job(saved)["status"] == "paused"
+
+
+async def test_space_on_a_paused_youtube_row_respawns_it(cfg, tmp_path, monkeypatch):
+    _job, saved, spawned = plant_job(tmp_path, monkeypatch, status="paused", done=4096)
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("space")
+        await pilot.pause()
+    assert client.unpaused == []
+    assert spawned and spawned[0]["status"] == "queued"
+    assert read_job(saved)["done"] == 4096, "resuming must keep what it already has"
+
+
+async def test_pause_all_pauses_youtube_jobs_without_telling_aria2(cfg, tmp_path, monkeypatch):
+    job, saved, _spawned = plant_job(tmp_path, monkeypatch)
+    client = FakeClient()
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("p")
+        await pilot.pause()
+    assert client.paused == ["g1", "g2"]
+    assert job["id"] not in client.paused
+    assert read_job(saved)["status"] == "paused"
+
+
+async def test_resume_all_respawns_paused_youtube_jobs(cfg, tmp_path, monkeypatch):
+    job, _saved, spawned = plant_job(tmp_path, monkeypatch, status="paused")
+    client = FakeClient()
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("u")
+        await pilot.pause()
+    assert client.unpaused == ["g1", "g2"]
+    assert job["id"] not in client.unpaused
+    assert [j["id"] for j in spawned] == [job["id"]]
+
+
+async def test_resume_all_leaves_a_running_youtube_job_alone(cfg, tmp_path, monkeypatch):
+    """Respawning a job that is already downloading would run yt-dlp twice over
+    the same scratch directory."""
+    _job, _saved, spawned = plant_job(tmp_path, monkeypatch, status="active")
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("u")
+        await pilot.pause()
+    assert spawned == []
+
+
+async def test_reordering_ignores_youtube_rows(cfg, tmp_path, monkeypatch):
+    """yt-dlp jobs start at once and hold no place in aria2's queue."""
+    plant_job(tmp_path, monkeypatch)
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("J")
+        await pilot.press("K")
+        await pilot.pause()
+    assert client.positions == []
+
+
+async def test_speed_limit_ignores_youtube_rows(cfg, tmp_path, monkeypatch):
+    plant_job(tmp_path, monkeypatch)
+    client = FakeClient()
+    client.active = []
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("l")
+        await pilot.pause()
+        assert len(app.screen_stack) == 1, "no limit prompt for a job aria2 does not own"
+    assert client.option_changes == []
+
+
+async def test_retry_keeps_the_proxy_it_was_downloading_through(cfg):
+    """Without this a filtered URL retries unproxied and fails forever."""
+    client = FakeClient()
+    client.active = [client.active[0]]
+    client.active[0].update(status="error", errorMessage="HTTP 403")
+    client.options["g1"] = {"all-proxy": "http://127.0.0.1:2080"}
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("r")
+        await pilot.pause()
+    assert client.add_calls[0][1]["all-proxy"] == cfg.proxy
+
+
+async def test_retry_of_an_unproxied_download_stays_unproxied(cfg):
+    client = FakeClient()
+    client.active = [client.active[0]]
+    client.active[0].update(status="error", errorMessage="HTTP 403")
+
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("r")
+        await pilot.pause()
+    assert "all-proxy" not in client.add_calls[0][1]
 
 
 async def test_a_proxied_download_is_badged_in_the_table(cfg):
