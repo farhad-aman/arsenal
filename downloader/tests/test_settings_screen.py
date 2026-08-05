@@ -2,8 +2,8 @@ import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Static
 
-from dl import settings
-from dl.tui.settings import FormScreen, SettingsMenuScreen
+from dl import config, settings
+from dl.tui.settings import FormScreen, ProxyScreen, SettingsMenuScreen
 
 
 @pytest.fixture
@@ -272,3 +272,98 @@ async def test_opening_a_section_pushes_its_form(cfg, tmp_path):
         await pilot.press("enter")
         await pilot.pause()
         assert type(app.screen).__name__ == "FormScreen"
+
+
+def proxied(cfg, domains=("youtube.com",)):
+    return config.replace(cfg, proxy_domains=tuple(domains))
+
+
+async def test_the_proxy_screen_shows_url_and_domains(cfg):
+    screen = ProxyScreen(proxied(cfg))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert cfg.proxy in screen.body
+        assert "youtube.com" in screen.body
+
+
+async def test_a_domain_can_be_added(cfg):
+    screen = ProxyScreen(proxied(cfg))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_domain("github.com")
+        await pilot.pause()
+        assert "github.com" in screen.domains
+
+
+async def test_a_blank_domain_is_refused(cfg):
+    screen = ProxyScreen(proxied(cfg))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_domain("   ")
+        await pilot.pause()
+        assert screen.domains == ["youtube.com"]
+        assert screen.error
+
+
+async def test_a_duplicate_domain_is_refused(cfg):
+    screen = ProxyScreen(proxied(cfg))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_domain("youtube.com")
+        await pilot.pause()
+        assert screen.domains == ["youtube.com"]
+        assert screen.error
+
+
+async def test_a_domain_can_be_deleted(cfg):
+    screen = ProxyScreen(proxied(cfg, ("youtube.com", "github.com")))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.cursor = 1
+        screen.delete_selected()
+        await pilot.pause()
+        assert screen.domains == ["youtube.com"]
+
+
+async def test_the_url_itself_can_be_changed(cfg):
+    """Displaying it without a way to change it would leave the one setting
+    the whole screen is named after uneditable."""
+    screen = ProxyScreen(proxied(cfg))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("u")
+        await pilot.pause()
+        assert screen.editing == "url"
+        screen.query_one("#settings-input", Input).value = "http://127.0.0.1:1080"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert screen.url == "http://127.0.0.1:1080"
+
+
+async def test_saving_returns_url_and_domains(cfg):
+    screen = ProxyScreen(proxied(cfg))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_domain("github.com")
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+    assert app.result[("proxy", "domains")] == ["youtube.com", "github.com"]
+    assert app.result[("proxy", "url")] == cfg.proxy
+
+
+async def test_escape_returns_nothing_from_the_proxy_screen(cfg):
+    screen = ProxyScreen(proxied(cfg))
+    app = Host(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen.add_domain("github.com")
+        await pilot.press("escape")
+        await pilot.pause()
+    assert app.result == {}

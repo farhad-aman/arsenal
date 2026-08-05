@@ -23,6 +23,10 @@ class FormScreen(ModalScreen[dict]):
     a save never rewrites values the user did not touch.
     """
 
+    # Nothing is focused until an edit starts: a focused Input swallows
+    # printable keys as text, and most keys here are single letters.
+    AUTO_FOCUS = ""
+
     BINDINGS = [
         ("escape", "cancel", "cancel"),
         Binding("up", "previous_field", "up", priority=True),
@@ -264,6 +268,8 @@ class SettingsMenuScreen(ModalScreen[None]):
             if label == name:
                 self.app.push_screen(FormScreen(label, fields, self.cfg), self._saved)
                 return
+        if name == "Proxy":
+            self.app.push_screen(ProxyScreen(self.cfg), self._saved)
 
     def _saved(self, changes: dict | None) -> None:
         if changes:
@@ -281,3 +287,158 @@ class SettingsMenuScreen(ModalScreen[None]):
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+
+LIST_HINT = "↑↓ move   a add   d delete   ⏎ edit   u url   ^S save   esc cancel"
+
+
+class ProxyScreen(ModalScreen[dict]):
+    """The proxy URL, and the hosts always sent through it."""
+
+    AUTO_FOCUS = ""
+
+    BINDINGS = [
+        ("escape", "cancel", "cancel"),
+        Binding("up", "previous", "up", priority=True),
+        Binding("down", "next", "down", priority=True),
+        Binding("a", "add", "add", priority=True),
+        Binding("d", "delete", "delete", priority=True),
+        Binding("u", "edit_url", "url", priority=True),
+        Binding("enter", "edit", "edit", priority=True),
+        Binding("ctrl+s", "save", "save", priority=True),
+    ]
+
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+        self.url = cfg.proxy
+        self.domains = list(cfg.proxy_domains)
+        self.cursor = 0
+        self.editing = ""
+        self.body = ""
+        self.error = ""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="settings-box"):
+            yield Static("  ⚙  Proxy", id="settings-head")
+            yield Static("", id="settings-list")
+            yield Input("", id="settings-input")
+            yield Static("", id="settings-error")
+            yield Static(LIST_HINT, id="settings-hint")
+
+    def on_mount(self) -> None:
+        self.query_one("#settings-input", Input).display = False
+        self._repaint()
+
+    def _repaint(self) -> None:
+        rows = [f"  URL   {self.url}", ""]
+        if not self.domains:
+            rows.append("  (no domains — every download goes direct unless -p)")
+        for index, domain in enumerate(self.domains):
+            marker = "▌" if index == self.cursor else " "
+            rows.append(f"{marker} {domain}")
+        self.body = "\n".join(rows)
+        self.query_one("#settings-list", Static).update(self.body)
+        self.query_one("#settings-error", Static).update(self.error)
+
+    def add_domain(self, value: str) -> None:
+        text = value.strip().lower()
+        if not text:
+            self.error = "  ⚠  a domain cannot be empty"
+            self._repaint()
+            return
+        if text in self.domains:
+            self.error = f"  ⚠  {text} is already listed"
+            self._repaint()
+            return
+        self.domains.append(text)
+        self.cursor = len(self.domains) - 1
+        self.error = ""
+        self._repaint()
+
+    def delete_selected(self) -> None:
+        if not self.domains:
+            return
+        del self.domains[self.cursor]
+        self.cursor = max(0, min(self.cursor, len(self.domains) - 1))
+        self._repaint()
+
+    def _open_editor(self, mode: str, prefill: str) -> None:
+        self.editing = mode
+        box = self.query_one("#settings-input", Input)
+        box.display = True
+        box.value = prefill
+        box.focus()
+
+    def _close_editor(self) -> None:
+        self.editing = ""
+        box = self.query_one("#settings-input", Input)
+        box.display = False
+        self.set_focus(None)
+        self._repaint()
+
+    def action_add(self) -> None:
+        if not self.editing:
+            self._open_editor("add", "")
+
+    def action_edit_url(self) -> None:
+        if not self.editing:
+            self._open_editor("url", self.url)
+
+    def action_edit(self) -> None:
+        if self.editing:
+            self._submit()
+            return
+        if self.domains:
+            self._open_editor("edit", self.domains[self.cursor])
+
+    def action_delete(self) -> None:
+        if not self.editing:
+            self.delete_selected()
+
+    def _submit(self) -> None:
+        value = self.query_one("#settings-input", Input).value
+        if self.editing == "url":
+            text = value.strip()
+            if not text:
+                self.error = "  ⚠  the proxy needs a URL"
+                self._repaint()
+                return
+            self.url = text
+        elif self.editing == "add":
+            self.add_domain(value)
+        elif self.editing == "edit" and self.domains:
+            text = value.strip().lower()
+            if not text:
+                self.error = "  ⚠  a domain cannot be empty"
+                self._repaint()
+                return
+            self.domains[self.cursor] = text
+        self._close_editor()
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        self._submit()
+
+    def _move(self, delta: int) -> None:
+        if self.editing or not self.domains:
+            return
+        self.cursor = (self.cursor + delta) % len(self.domains)
+        self._repaint()
+
+    def action_next(self) -> None:
+        self._move(1)
+
+    def action_previous(self) -> None:
+        self._move(-1)
+
+    def action_cancel(self) -> None:
+        if self.editing:
+            self._close_editor()
+            return
+        self.dismiss({})
+
+    def action_save(self) -> None:
+        if self.editing:
+            self._submit()
+            return
+        self.dismiss({("proxy", "url"): self.url, ("proxy", "domains"): list(self.domains)})
