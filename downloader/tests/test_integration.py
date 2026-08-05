@@ -265,3 +265,44 @@ def test_pausing_a_youtube_job_is_not_recorded_as_a_failure(tmp_path, monkeypatc
     finally:
         if supervisor.poll() is None:
             supervisor.kill()
+
+
+def test_a_saved_concurrency_reaches_a_real_daemon(env, tmp_path):
+    """Everything else is checked against fakes. This asserts aria2 itself
+    takes the new value on a running daemon."""
+    from dl import tomlio
+
+    cfg, state = env
+    client = daemon.ensure_running(cfg, state)
+    before = client._call("aria2.getGlobalOption")["max-concurrent-downloads"]
+
+    config_file = tmp_path / "settings.toml"
+    config.write_default(config_file)
+    tomlio.apply(config_file, {("general", "max_concurrent"): 9})
+    assert config.load(config_file).general.max_concurrent == 9
+
+    client.change_global_option({"max-concurrent-downloads": "9"})
+    after = client._call("aria2.getGlobalOption")["max-concurrent-downloads"]
+    assert after == "9"
+    assert after != before
+
+
+def test_the_written_default_config_survives_a_round_trip(tmp_path):
+    """dl ships a heavily commented default. A save must not eat it."""
+    from dl import tomlio
+
+    path = tmp_path / "config.toml"
+    config.write_default(path)
+    before = path.read_text()
+    comments = [line for line in before.splitlines() if line.startswith("#")]
+    assert comments, "the default config is supposed to be commented"
+
+    tomlio.apply(path, {("general", "theme"): "ember"})
+    after = path.read_text()
+
+    assert config.load(path).general.theme == "ember"
+    for line in comments:
+        assert line in after, f"lost a comment: {line}"
+    # The default lines its values up in a column; tomlkit keeps that too.
+    assert "theme           =" in after
+    assert len(after.splitlines()) == len(before.splitlines())

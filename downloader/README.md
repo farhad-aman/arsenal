@@ -166,7 +166,8 @@ downloads queued later from anywhere. `-p` is the only thing that decides.
 | `l` | speed limit (aria2 downloads only) | | `r` | retry a failed download |
 | `o` | open the file | | `f` | reveal in Finder |
 | `p` / `u` | pause all / resume all | | `d` | delete: from list, or disk too |
-| `tab` | Active ⇄ Completed | | `enter` | expand row detail |
+| `s` | settings | | `tab` | Active ⇄ Completed |
+| `enter` | expand row detail | | | |
 | `↑` / `↓` | move cursor | | `q` | quit — downloads keep running |
 
 Speed limits apply to one download at a time — there is no global throttle, and
@@ -177,6 +178,30 @@ resumes them by stopping yt-dlp and picking the fragments back up, and `J`/`K`
 do not apply because they start immediately rather than queueing.
 
 Mouse works too: click to select and scroll.
+
+## Settings
+
+`s` in the dashboard opens every setting as a screen: General, Limits, YouTube and
+Hooks as forms, plus list editors for proxy domains, per-host headers and
+categories.
+
+Theme and icons preview as you move through them so you can see what you are
+choosing; everything else applies on `^S`. `Esc` discards, including an unsaved
+theme preview.
+
+Nothing needs a restart. Most settings are read when they are next used, so they
+apply to the next download, and `max_concurrent` is pushed to the running daemon.
+
+Saving rewrites only the values you touched — the comments, blank lines and
+column alignment of your `config.toml` all survive.
+
+If `config.toml` has a syntax error the screen refuses to open rather than
+overwrite it. `dl` runs on defaults until the file parses, and saving those
+defaults over your file would destroy what you wrote.
+
+Everything remains editable by hand; the screen is a second way in, not a
+replacement. A running `dl` will not notice edits made in an editor, though —
+restart it, or make the change from the screen.
 
 ## Configuration
 
