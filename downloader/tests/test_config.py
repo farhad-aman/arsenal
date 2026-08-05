@@ -168,3 +168,21 @@ def test_probe_timeout_is_read_as_a_duration(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text('[youtube]\nprobe_timeout = "5m"\n')
     assert config.load(path).probe_timeout == 300
+
+
+def test_no_completion_hook_by_default():
+    assert config.defaults().on_complete == ""
+
+
+def test_the_completion_hook_is_read_from_the_toml(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[hooks]\non_complete = "~/bin/done.sh"\ntimeout = "2m"\n')
+    cfg = config.load(path)
+    assert cfg.on_complete == "~/bin/done.sh"
+    assert cfg.hook_timeout == 120
+
+
+def test_the_hook_timeout_has_a_default(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[hooks]\non_complete = "x"\n')
+    assert config.load(path).hook_timeout == 300

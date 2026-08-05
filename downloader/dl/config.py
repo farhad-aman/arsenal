@@ -51,6 +51,7 @@ class Limits:
 DEFAULT_PROXY = "http://127.0.0.1:2080"
 DEFAULT_COOKIES = "chrome"
 DEFAULT_PROBE_TIMEOUT = 180
+DEFAULT_HOOK_TIMEOUT = 300
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,8 @@ class Config:
     proxy_domains: tuple[str, ...] = ()
     cookies_from: str = DEFAULT_COOKIES
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
+    on_complete: str = ""
+    hook_timeout: int = DEFAULT_HOOK_TIMEOUT
 
 
 def parse_duration(text: str) -> int:
@@ -190,6 +193,12 @@ def load(path: Path | None = None) -> Config:
                 if "probe_timeout" in raw.get("youtube", {})
                 else DEFAULT_PROBE_TIMEOUT
             ),
+            on_complete=str(raw.get("hooks", {}).get("on_complete", "")),
+            hook_timeout=(
+                parse_duration(raw["hooks"]["timeout"])
+                if "timeout" in raw.get("hooks", {})
+                else DEFAULT_HOOK_TIMEOUT
+            ),
         )
     except (tomllib.TOMLDecodeError, ValueError, TypeError, AttributeError, KeyError) as exc:
         print(f"dl: {target} is invalid ({exc}) — using defaults", file=sys.stderr)
@@ -221,6 +230,12 @@ cookies_from = "chrome"
 # Over a proxy this ranges from seconds to minutes; giving up early costs the
 # title, the size and the check for a copy already on disk.
 probe_timeout = "3m"
+
+[hooks]
+# Run after every finished download, as: <command> <path> <category> <url>
+# Runs for YouTube downloads too. A hook that fails never fails the download.
+on_complete = ""
+timeout     = "5m"
 
 [limits]
 per_download = "off"

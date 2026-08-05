@@ -165,3 +165,44 @@ def test_the_probe_timeout_is_configurable(monkeypatch):
 
 def test_the_default_probe_timeout_survives_a_slow_proxy():
     assert ytrun.PROBE_TIMEOUT >= 180
+
+
+def test_a_finished_youtube_download_runs_the_completion_hook(tmp_path, monkeypatch):
+    """Same contract as an aria2 download: yt-dlp jobs never reached the hook
+    because they finish on a completely different code path."""
+    from dl import config, ytjob
+    from dl.youtube import DEFAULTS
+
+    seen = []
+    monkeypatch.setattr(ytrun, "after_complete", lambda cfg, record, state: seen.append(record))
+    monkeypatch.setattr(ytrun.history, "append", lambda record, log: None)
+
+    state = tmp_path / "yt"
+    dest = tmp_path / "out"
+    dest.mkdir(parents=True)
+    landed = dest / "clip.mp4"
+    landed.write_bytes(b"x" * 64)
+
+    job = ytjob.new_job("https://youtu.be/x", dest, DEFAULTS)
+    ytjob.save(state, job)
+    ytjob.result_marker(state, job).write_text(str(landed))
+
+    base = config.defaults()
+    cfg = config.replace(base, general=config.replace(base.general, notify=False))
+    ytrun.finalize(state, job, 0, cfg)
+
+    assert seen and seen[0]["path"] == str(landed)
+    assert seen[0]["category"] == "video"
+
+
+def test_a_failed_youtube_download_does_not_run_the_hook(tmp_path, monkeypatch):
+    from dl import config, ytjob
+    from dl.youtube import DEFAULTS
+
+    seen = []
+    monkeypatch.setattr(ytrun, "after_complete", lambda cfg, record, state: seen.append(record))
+
+    job = ytjob.new_job("https://youtu.be/x", tmp_path / "out", DEFAULTS)
+    ytjob.save(tmp_path / "yt", job)
+    ytrun.finalize(tmp_path / "yt", job, 1, config.defaults())
+    assert seen == []

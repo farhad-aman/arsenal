@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import sys
 import time
@@ -103,6 +104,51 @@ def notify(title: str, body: str) -> bool:
     return done.returncode == 0
 
 
+def run_user_hook(cfg: Config, record: dict) -> str:
+    """Run the user's on_complete command. Returns why it failed, or "".
+
+    No shell. Names come off the internet, and one containing `;` or `$(...)`
+    would otherwise be executed rather than passed along.
+
+    Blocking is deliberate: the useful hooks unpack or move the file they were
+    handed, so they need it to still be there and they need to not race each
+    other. Nothing waits on this — aria2 never waits for a completion hook, and
+    the YouTube path runs inside its own detached supervisor.
+    """
+    if not cfg.on_complete.strip():
+        return ""
+    argv = shlex.split(cfg.on_complete)
+    argv[0] = str(Path(argv[0]).expanduser())
+    argv += [record.get("path", ""), record.get("category", ""), record.get("url", "")]
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, text=True, timeout=cfg.hook_timeout, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return f"timed out after {cfg.hook_timeout}s"
+    except OSError as exc:
+        return str(exc)
+    if done.returncode == 0:
+        return ""
+    said = (done.stderr or done.stdout or "").strip().splitlines()
+    return said[-1][:200] if said else f"exited {done.returncode}"
+
+
+def after_complete(cfg: Config, record: dict, state: Path) -> str:
+    """Run the completion hook and make any failure findable.
+
+    A hook that fails never fails the download: the bytes arrived, and what the
+    user asked to happen afterwards is a separate thing that can go wrong.
+    """
+    problem = run_user_hook(cfg, record)
+    if not problem:
+        return ""
+    _log(state, f"on_complete failed for {record.get('name', '')}: {problem}")
+    if cfg.general.notify:
+        notify("Download hook failed", f"{record.get('name', '')}: {problem}")
+    return problem
+
+
 def _spawn_sleeper(state: Path, generation: int, delay: int) -> None:
     subprocess.Popen(
         [sys.executable, "-m", "dl.hook", "idle", str(generation), str(delay), str(state)],
@@ -134,10 +180,14 @@ def _run_idle(generation: int, delay: int, state: Path) -> int:
     return 0
 
 
-def _log_failure(state: Path) -> None:
+def _log(state: Path, message: str) -> None:
     state.mkdir(parents=True, exist_ok=True)
     with open(state / "hook.log", "a") as fh:
-        fh.write(f"--- {time.ctime()}\n{traceback.format_exc()}\n")
+        fh.write(f"--- {time.ctime()}\n{message}\n")
+
+
+def _log_failure(state: Path) -> None:
+    _log(state, traceback.format_exc())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -169,6 +219,8 @@ def main(argv: list[str] | None = None) -> int:
         if cfg.general.notify:
             title = "Download complete" if mode == "complete" else "Download failed"
             notify(title, record["name"] or gid)
+        if mode == "complete":
+            after_complete(cfg, record, state)
         arm_idle_shutdown(client, cfg, state)
     except Exception:
         _log_failure(state)

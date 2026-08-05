@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import history, ytjob
 from .config import STATE_DIR, load
-from .hook import notify
+from .hook import after_complete, notify
 
 POLL = 0.5
 WINDOW = 3.0
@@ -161,23 +161,22 @@ def finalize(state: Path, job: dict, code: int, cfg) -> dict:
         done=landed.stat().st_size if landed else job["done"],
     )
     ytjob.clean_scratch(state, job)
-    history.append(
-        {
-            "ts": int(time.time()),
-            "name": landed.name if landed else job["url"],
-            "bytes": job["done"],
-            "seconds": max(int(time.time()) - job["started"], 0),
-            "avg_bps": 0,
-            "path": job["file"],
-            "category": "video",
-            "url": job["url"],
-            "status": "ok",
-            "proxy": bool(job.get("proxy")),
-        },
-        STATE_DIR / "history.jsonl",
-    )
+    record = {
+        "ts": int(time.time()),
+        "name": landed.name if landed else job["url"],
+        "bytes": job["done"],
+        "seconds": max(int(time.time()) - job["started"], 0),
+        "avg_bps": 0,
+        "path": job["file"],
+        "category": "video",
+        "url": job["url"],
+        "status": "ok",
+        "proxy": bool(job.get("proxy")),
+    }
+    history.append(record, STATE_DIR / "history.jsonl")
     if cfg.general.notify:
         notify("Download complete", landed.name if landed else job["url"])
+    after_complete(cfg, record, STATE_DIR)
     return job
 
 

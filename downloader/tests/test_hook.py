@@ -313,3 +313,96 @@ def test_a_direct_download_is_recorded_as_direct(cfg):
 ])
 def test_proxy_is_read_from_whichever_option_carried_it(options, expected):
     assert hook.went_through_proxy(options) is expected
+
+
+def hook_cfg(tmp_path, script_body, timeout=300):
+    script = tmp_path / "on-complete.sh"
+    script.write_text(script_body)
+    script.chmod(0o755)
+    base = config.defaults()
+    return config.replace(base, on_complete=str(script), hook_timeout=timeout), script
+
+
+def test_no_hook_configured_runs_nothing(cfg):
+    assert hook.run_user_hook(cfg, {"path": "/tmp/a.iso"}) == ""
+
+
+def test_the_hook_is_handed_the_file_category_and_url(tmp_path):
+    out = tmp_path / "args"
+    cfg, _ = hook_cfg(tmp_path, f'#!/bin/sh\nprintf "%s\\n" "$1" "$2" "$3" > {out}\n')
+    problem = hook.run_user_hook(
+        cfg, {"path": "/tmp/a.iso", "category": "iso", "url": "https://e.com/a.iso"}
+    )
+    assert problem == ""
+    assert out.read_text().splitlines() == ["/tmp/a.iso", "iso", "https://e.com/a.iso"]
+
+
+def test_a_hook_that_fails_says_why(tmp_path):
+    cfg, _ = hook_cfg(tmp_path, '#!/bin/sh\necho "no such volume" >&2\nexit 3\n')
+    assert "no such volume" in hook.run_user_hook(cfg, {"path": "/tmp/a.iso"})
+
+
+def test_a_hook_that_fails_silently_still_reports(tmp_path):
+    cfg, _ = hook_cfg(tmp_path, "#!/bin/sh\nexit 4\n")
+    assert "4" in hook.run_user_hook(cfg, {"path": "/tmp/a.iso"})
+
+
+def test_a_hook_that_hangs_is_cut_off(tmp_path):
+    """A script waiting on a dead mount would otherwise pin a process forever."""
+    cfg, _ = hook_cfg(tmp_path, "#!/bin/sh\nsleep 30\n", timeout=1)
+    assert "timed out" in hook.run_user_hook(cfg, {"path": "/tmp/a.iso"})
+
+
+def test_a_hook_that_is_not_there_reports_instead_of_raising(tmp_path):
+    cfg = config.replace(config.defaults(), on_complete=str(tmp_path / "nope.sh"))
+    problem = hook.run_user_hook(cfg, {"path": "/tmp/a.iso"})
+    assert problem
+    assert "nope.sh" in problem or "No such file" in problem
+
+
+def test_the_hook_command_may_carry_its_own_arguments(tmp_path):
+    out = tmp_path / "args"
+    script = tmp_path / "h.sh"
+    script.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {out}\n')
+    script.chmod(0o755)
+    cfg = config.replace(config.defaults(), on_complete=f"{script} --verbose")
+    hook.run_user_hook(cfg, {"path": "/tmp/a.iso", "category": "iso", "url": "u"})
+    assert out.read_text().splitlines()[0] == "--verbose"
+
+
+def test_a_filename_is_never_interpreted_by_a_shell(tmp_path):
+    """Names come from the internet. `; rm -rf ~` has to arrive as text."""
+    out = tmp_path / "args"
+    canary = tmp_path / "canary"
+    canary.write_text("intact")
+    cfg, _ = hook_cfg(tmp_path, f'#!/bin/sh\nprintf "%s" "$1" > {out}\n')
+    nasty = f"/tmp/a.iso; rm -f {canary}"
+    assert hook.run_user_hook(cfg, {"path": nasty, "category": "", "url": ""}) == ""
+    assert out.read_text() == nasty
+    assert canary.read_text() == "intact"
+
+
+def test_a_failing_hook_never_fails_the_download(tmp_path):
+    """The bytes arrived. What the user asked to happen afterwards is a separate
+    thing, and it going wrong must not rewrite the download as failed."""
+    cfg, _ = hook_cfg(tmp_path, "#!/bin/sh\nexit 9\n")
+    cfg = config.replace(cfg, general=config.replace(cfg.general, notify=False))
+    record = {"name": "a.iso", "path": "/tmp/a.iso", "status": "ok"}
+    problem = hook.after_complete(cfg, record, tmp_path / "state")
+    assert problem
+    assert record["status"] == "ok"
+
+
+def test_a_failing_hook_is_written_where_it_can_be_found(tmp_path):
+    cfg, _ = hook_cfg(tmp_path, '#!/bin/sh\necho "mount is gone" >&2\nexit 1\n')
+    cfg = config.replace(cfg, general=config.replace(cfg.general, notify=False))
+    state = tmp_path / "state"
+    hook.after_complete(cfg, {"name": "a.iso", "path": "/tmp/a.iso"}, state)
+    assert "mount is gone" in (state / "hook.log").read_text()
+
+
+def test_a_hook_that_works_stays_quiet(tmp_path):
+    cfg, _ = hook_cfg(tmp_path, "#!/bin/sh\nexit 0\n")
+    state = tmp_path / "state"
+    assert hook.after_complete(cfg, {"name": "a.iso", "path": "/tmp/a.iso"}, state) == ""
+    assert not (state / "hook.log").exists()

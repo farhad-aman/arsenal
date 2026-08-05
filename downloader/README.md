@@ -174,6 +174,8 @@ Mouse works too: click to select and scroll.
 | `general.theme` | `"aurora"` | `aurora`, `ember`, `matrix`, `mono` |
 | `general.ascii_icons` | `false` | replace emoji with 2-letter tags |
 | `general.notify` | `true` | macOS banner on completion |
+| `hooks.on_complete` | `""` | command to run after each finished download |
+| `hooks.timeout` | `"5m"` | how long that command may take |
 | `proxy.url` | `http://127.0.0.1:2080` | where `-p` and `proxy.domains` send traffic |
 | `proxy.domains` | `[]` | hosts always downloaded through the proxy |
 | `youtube.cookies_from` | `"chrome"` | browser to borrow YouTube cookies from |
@@ -206,6 +208,28 @@ the duplicate check compares against, and over a proxy it can take anywhere from
 twenty seconds to a couple of minutes. If it never arrives, `dl` says so and asks
 rather than queueing blind, because a download queued without it would be
 silently declined by yt-dlp when the file is already there.
+
+`hooks.on_complete` runs your own command once a download lands:
+
+```toml
+[hooks]
+on_complete = "~/bin/dl-done.sh"
+```
+
+```sh
+#!/bin/sh                       # $1 path   $2 category   $3 url
+case "$2" in
+  archive) unar -d "$1" && rm "$1" ;;
+  video)   mv "$1" ~/Movies/ToWatch/ ;;
+esac
+```
+
+It runs for YouTube downloads too, and never through a shell — a filename
+containing `;` or `$(...)` arrives as text rather than as something to execute.
+
+A hook that fails or exceeds `timeout` never fails the download: the bytes
+arrived, and what you asked to happen afterwards is a separate thing that can go
+wrong. Failures go to `~/.local/state/dl/hook.log` and, if notifications are on, a banner.
 
 Add a category in three lines — the icon and colour flow into the TUI
 automatically:
