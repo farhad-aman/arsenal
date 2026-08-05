@@ -130,7 +130,7 @@ def test_a_youtube_link_goes_to_yt_dlp_not_aria2(cfg, monkeypatch, tmp_path):
     """aria2 would fetch the watch page itself and save it as HTML."""
     spawned = []
     monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
-    monkeypatch.setattr("dl.ytrun.probe", lambda job: ("A Clip", str(tmp_path / "A Clip.mp4"), 99))
+    monkeypatch.setattr("dl.ytrun.probe", lambda job, timeout=None: ("A Clip", str(tmp_path / "A Clip.mp4"), 99))
     monkeypatch.setattr(watch.shutil, "which", lambda name: "/usr/local/bin/yt-dlp")
 
     client = FakeClient()
@@ -143,7 +143,7 @@ def test_a_youtube_link_goes_to_yt_dlp_not_aria2(cfg, monkeypatch, tmp_path):
 def test_a_caught_youtube_link_on_a_listed_domain_is_proxied(cfg, monkeypatch, tmp_path):
     spawned = []
     monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
-    monkeypatch.setattr("dl.ytrun.probe", lambda job: ("A Clip", str(tmp_path / "A Clip.mp4"), 99))
+    monkeypatch.setattr("dl.ytrun.probe", lambda job, timeout=None: ("A Clip", str(tmp_path / "A Clip.mp4"), 99))
     monkeypatch.setattr(watch.shutil, "which", lambda name: "/usr/local/bin/yt-dlp")
 
     proxied = config.replace(cfg, proxy_domains=("youtu.be",))
@@ -156,7 +156,7 @@ def test_a_youtube_video_already_on_disk_is_not_fetched_again(cfg, monkeypatch, 
     monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
     landed = tmp_path / "A Clip.mp4"
     landed.write_bytes(b"already here")
-    monkeypatch.setattr("dl.ytrun.probe", lambda job: ("A Clip", str(landed), 99))
+    monkeypatch.setattr("dl.ytrun.probe", lambda job, timeout=None: ("A Clip", str(landed), 99))
     monkeypatch.setattr(watch.shutil, "which", lambda name: "/usr/local/bin/yt-dlp")
 
     assert watch.poll_once("https://youtu.be/abc", deque(maxlen=20), cfg, FakeClient()) is False
@@ -169,3 +169,23 @@ def test_a_youtube_link_without_yt_dlp_says_so(cfg, monkeypatch, capsys):
     assert watch.poll_once("https://youtu.be/abc", deque(maxlen=20), cfg, client) is False
     assert client.added == []
     assert "yt-dlp" in capsys.readouterr().out
+
+
+def test_a_youtube_link_it_cannot_check_is_left_alone(cfg, monkeypatch, capsys):
+    """Queuing blind would let yt-dlp find the file already there and do
+    nothing, which is the silence this check exists to remove."""
+    from dl import ytrun
+
+    spawned = []
+    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
+    monkeypatch.setattr(watch.shutil, "which", lambda name: "/usr/local/bin/yt-dlp")
+
+    def die(job, timeout=None):
+        raise ytrun.ProbeFailed("timed out after 180s")
+
+    monkeypatch.setattr("dl.ytrun.probe", die)
+
+    assert watch.poll_once("https://youtu.be/abc", deque(maxlen=20), cfg, FakeClient()) is False
+    assert spawned == []
+    out = capsys.readouterr().out
+    assert "timed out" in out

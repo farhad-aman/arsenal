@@ -1,6 +1,12 @@
 from collections import deque
+from dataclasses import asdict
+
+import pytest
 
 from dl import ytrun
+from dl.youtube import DEFAULTS
+
+DEFAULTS_DICT = asdict(DEFAULTS)
 
 
 def test_rate_needs_two_samples_before_it_claims_anything():
@@ -116,3 +122,46 @@ def test_the_supervisor_stands_down_when_the_job_is_cancelled():
 
 def test_the_supervisor_keeps_going_while_the_job_is_active():
     assert ytrun.stand_down("active") is False
+
+
+def test_a_probe_that_times_out_is_not_reported_as_a_blank_answer(monkeypatch):
+    """Empty strings read as 'nothing to check', which silently skips the
+    duplicate prompt and leaves the row with no title, size or progress."""
+    import subprocess
+
+    def die(*a, **k):
+        raise subprocess.TimeoutExpired("yt-dlp", 60)
+
+    monkeypatch.setattr(ytrun.subprocess, "run", die)
+    with pytest.raises(ytrun.ProbeFailed):
+        ytrun.probe({"url": "https://youtu.be/x", "choices": DEFAULTS_DICT, "dir": "/tmp"})
+
+
+def test_a_probe_that_cannot_start_also_raises(monkeypatch):
+    def die(*a, **k):
+        raise OSError("yt-dlp not runnable")
+
+    monkeypatch.setattr(ytrun.subprocess, "run", die)
+    with pytest.raises(ytrun.ProbeFailed):
+        ytrun.probe({"url": "https://youtu.be/x", "choices": DEFAULTS_DICT, "dir": "/tmp"})
+
+
+def test_the_probe_timeout_is_configurable(monkeypatch):
+    """Resolving a filtered link through a proxy ranges from 20s to minutes, so
+    the cap has to be tunable rather than baked in at 60."""
+    seen = {}
+
+    class Done:
+        stdout = "clip\n/tmp/clip.mp4\n99\n"
+
+    monkeypatch.setattr(
+        ytrun.subprocess, "run", lambda *a, **k: seen.update(k) or Done()
+    )
+    ytrun.probe(
+        {"url": "https://youtu.be/x", "choices": DEFAULTS_DICT, "dir": "/tmp"}, timeout=300
+    )
+    assert seen["timeout"] == 300
+
+
+def test_the_default_probe_timeout_survives_a_slow_proxy():
+    assert ytrun.PROBE_TIMEOUT >= 180

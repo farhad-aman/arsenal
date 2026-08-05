@@ -85,7 +85,13 @@ def _catch_youtube(url: str, cfg: Config) -> bool:
         cfg.cookies_from,
     )
     print(f"  ⏳ asking YouTube about  {url}")
-    title, filename, total = ytrun.probe(job)
+    try:
+        title, filename, total = ytrun.probe(job, cfg.probe_timeout)
+    except ytrun.ProbeFailed as exc:
+        # Queuing blind would let yt-dlp find the file already there and do
+        # nothing, which is exactly the silence this check exists to remove.
+        print(f"  ⏭  skipped  {url}  — {exc}; `dl <url>` to choose")
+        return False
     target = Path(filename) if filename else None
     if target is not None and duplicates.detect_target(target) is not None:
         print(f"  ⏭  skipped  {target.name}  — already there; `dl <url>` to choose")

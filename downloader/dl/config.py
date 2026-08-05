@@ -50,6 +50,7 @@ class Limits:
 
 DEFAULT_PROXY = "http://127.0.0.1:2080"
 DEFAULT_COOKIES = "chrome"
+DEFAULT_PROBE_TIMEOUT = 180
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class Config:
     proxy: str = DEFAULT_PROXY
     proxy_domains: tuple[str, ...] = ()
     cookies_from: str = DEFAULT_COOKIES
+    probe_timeout: int = DEFAULT_PROBE_TIMEOUT
 
 
 def parse_duration(text: str) -> int:
@@ -183,6 +185,11 @@ def load(path: Path | None = None) -> Config:
                 str(d).lower() for d in raw.get("proxy", {}).get("domains", [])
             ),
             cookies_from=str(raw.get("youtube", {}).get("cookies_from", DEFAULT_COOKIES)),
+            probe_timeout=(
+                parse_duration(raw["youtube"]["probe_timeout"])
+                if "probe_timeout" in raw.get("youtube", {})
+                else DEFAULT_PROBE_TIMEOUT
+            ),
         )
     except (tomllib.TOMLDecodeError, ValueError, TypeError, AttributeError, KeyError) as exc:
         print(f"dl: {target} is invalid ({exc}) — using defaults", file=sys.stderr)
@@ -210,6 +217,10 @@ domains = []
 # YouTube refuses anonymous requests ("confirm you're not a bot"), so yt-dlp
 # borrows cookies from this browser. Set to "" to send none.
 cookies_from = "chrome"
+# How long to wait for YouTube to say what a link is before downloading it.
+# Over a proxy this ranges from seconds to minutes; giving up early costs the
+# title, the size and the check for a copy already on disk.
+probe_timeout = "3m"
 
 [limits]
 per_download = "off"

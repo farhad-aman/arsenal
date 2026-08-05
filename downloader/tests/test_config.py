@@ -158,3 +158,13 @@ def test_the_written_default_config_documents_proxy_domains(tmp_path):
     config.write_default(path)
     assert "domains" in path.read_text().split("[proxy]", 1)[1].split("[", 1)[0]
     assert config.load(path).proxy_domains == ()
+
+
+def test_probe_timeout_has_a_default():
+    assert config.defaults().probe_timeout >= 180
+
+
+def test_probe_timeout_is_read_as_a_duration(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[youtube]\nprobe_timeout = "5m"\n')
+    assert config.load(path).probe_timeout == 300

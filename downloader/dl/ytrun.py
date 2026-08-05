@@ -11,7 +11,7 @@ from .hook import notify
 
 POLL = 0.5
 WINDOW = 3.0
-PROBE_TIMEOUT = 60
+PROBE_TIMEOUT = 180
 STAND_DOWN = ("cancelled", "paused")
 
 
@@ -69,17 +69,28 @@ def reported_speed(log: Path, tail: int = 4000) -> int:
         return -1
 
 
-def probe(job: dict) -> tuple[str, str, int]:
+class ProbeFailed(Exception):
+    """The probe never answered.
+
+    Distinct from an empty answer: blank strings read as 'nothing to check',
+    which skips the duplicate prompt and leaves the row with no title, size or
+    progress — all of it looking like a normal download.
+    """
+
+
+def probe(job: dict, timeout: float = PROBE_TIMEOUT) -> tuple[str, str, int]:
     try:
         done = subprocess.run(
             ytjob.probe_command(job),
             capture_output=True,
             text=True,
-            timeout=PROBE_TIMEOUT,
+            timeout=timeout,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
-        return "", "", 0
+    except subprocess.TimeoutExpired:
+        raise ProbeFailed(f"YouTube did not answer within {int(timeout)}s") from None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProbeFailed(str(exc)) from None
     return ytjob.parse_probe(done.stdout)
 
 
@@ -174,7 +185,12 @@ def main(argv: list[str]) -> int:
     directory = Path(job["dir"])
     directory.mkdir(parents=True, exist_ok=True)
 
-    title, _filename, total = probe(job)
+    try:
+        title, _filename, total = probe(job, cfg.probe_timeout)
+    except ProbeFailed:
+        # Only the row's title and size depend on this; the download itself
+        # does not, so a slow answer must not cost the user the download.
+        title, total = "", 0
     if title or total:
         _update(state, job, title=title or job.get("title", ""), total=total)
 

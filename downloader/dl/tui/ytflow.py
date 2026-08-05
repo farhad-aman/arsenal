@@ -7,11 +7,11 @@ import asyncio
 from textual.app import App
 from textual.widgets import Static
 
-from .. import duplicates, history, routing, ytjob
+from .. import duplicates, history, routing, ytjob, ytrun
 from ..config import STATE_DIR, Config
 from ..format import human_bytes
 from ..theme import select
-from .modals import DuplicateModal
+from .modals import ConfirmModal, DuplicateModal
 from .picker import CancelAll, PickerScreen
 from .table import DownloadTable, row_from_job
 from .ytoptions import YouTubeOptionsScreen
@@ -47,10 +47,11 @@ class YouTubeSetupApp(App):
 
     CSS = """
     Screen { align: center middle; }
-    YouTubeOptionsScreen, PickerScreen, DuplicateModal { align: center middle; }
-    #yt-box, #picker-box, #duplicate-box {
+    YouTubeOptionsScreen, PickerScreen, DuplicateModal, ConfirmModal { align: center middle; }
+    #yt-box, #picker-box, #duplicate-box, #confirm-box {
         width: 76; padding: 1 2; border: round $accent; background: $surface;
     }
+    #confirm-box Button { width: 100%; margin-top: 1; }
     #yt-head, #duplicate-head { text-style: bold; }
     #yt-list, #picker-list, #picker-error, #duplicate-detail { height: auto; }
     #duplicate-box Button { width: 100%; margin-top: 1; }
@@ -123,7 +124,11 @@ class YouTubeSetupApp(App):
         Matching is on the destination alone: the same video at another
         resolution shares a URL but is not the download already on disk.
         """
-        title, filename, total = await _probe_job(job)
+        try:
+            title, filename, total = await _probe_job(job, self.cfg.probe_timeout)
+        except ytrun.ProbeFailed as exc:
+            self._ask_blind(index, job, str(exc))
+            return
         job["title"] = title
         job["total"] = total
         target = Path(filename) if filename else None
@@ -146,6 +151,27 @@ class YouTubeSetupApp(App):
 
         self.push_screen(
             DuplicateModal(target.name, collision, human_bytes(collision.size)), decided
+        )
+
+    def _ask_blind(self, index: int, job: dict, reason: str) -> None:
+        """Without the probe there is no filename, so there is no way to know
+        whether this would land on something. Say so rather than queue it and
+        let yt-dlp silently decline to overwrite."""
+
+        def decided(go: bool) -> None:
+            if go:
+                self._queue(index, job)
+                return
+            self.skipped.append(job)
+            self._ask_options(index + 1)
+
+        self.push_screen(
+            ConfirmModal(
+                f"Could not check for an existing copy — {reason}.\n\n"
+                "Download anyway? If the file is already there, yt-dlp will "
+                "leave it alone."
+            ),
+            decided,
         )
 
     def _queue(self, index: int, job: dict) -> None:
@@ -218,10 +244,8 @@ def summarise(jobs: list[dict]) -> list[str]:
     return lines
 
 
-async def _probe_job(job: dict) -> tuple[str, str, int]:
-    from .. import ytrun
-
-    return await asyncio.to_thread(ytrun.probe, job)
+async def _probe_job(job: dict, timeout: float) -> tuple[str, str, int]:
+    return await asyncio.to_thread(ytrun.probe, job, timeout)
 
 
 def _label(url: str) -> str:

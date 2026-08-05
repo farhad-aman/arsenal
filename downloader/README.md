@@ -176,6 +176,8 @@ Mouse works too: click to select and scroll.
 | `general.notify` | `true` | macOS banner on completion |
 | `proxy.url` | `http://127.0.0.1:2080` | where `-p` and `proxy.domains` send traffic |
 | `proxy.domains` | `[]` | hosts always downloaded through the proxy |
+| `youtube.cookies_from` | `"chrome"` | browser to borrow YouTube cookies from |
+| `youtube.probe_timeout` | `"3m"` | how long to wait for YouTube to describe a link |
 | `limits.per_download` | `"off"` | default cap per download, e.g. `"500K"` |
 | `limits.connections` | `16` | connections per server |
 | `limits.splits` | `16` | segments per file |
@@ -197,6 +199,13 @@ as it does under `[domains]`.
 Because the rule travels with the URL rather than the command line, retries,
 the dashboard's add box and `dl watch` all proxy the same downloads `dl -p`
 would.
+
+Before a YouTube download starts, `dl` asks yt-dlp what the link actually is —
+the title, the size, and the exact filename it would write. That answer is what
+the duplicate check compares against, and over a proxy it can take anywhere from
+twenty seconds to a couple of minutes. If it never arrives, `dl` says so and asks
+rather than queueing blind, because a download queued without it would be
+silently declined by yt-dlp when the file is already there.
 
 Add a category in three lines — the icon and colour flow into the TUI
 automatically:
