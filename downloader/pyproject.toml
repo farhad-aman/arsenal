@@ -7,7 +7,7 @@ name = "dl-downloader"
 version = "0.1.0"
 description = "Terminal download manager over aria2c"
 requires-python = ">=3.11"
-dependencies = ["textual>=0.80"]
+dependencies = ["textual>=0.80", "tomlkit>=0.13"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
