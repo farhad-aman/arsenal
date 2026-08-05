@@ -115,6 +115,42 @@ def test_an_unnamed_target_does_not_match_a_directory(tmp_path):
     assert duplicates.detect(URL, None, [], []) is None
 
 
+def test_detect_target_ignores_where_the_file_came_from(tmp_path):
+    """The same video at another resolution shares a URL but is a different
+    file, so YouTube compares destinations only."""
+    target = tmp_path / "clip.mp4"
+    target.write_bytes(b"x" * 64)
+    found = duplicates.detect_target(target)
+    assert found.kind == duplicates.TARGET
+    assert found.choices == (SKIP, RENAME, OVERWRITE)
+    assert found.size == 64
+    assert found.risky_overwrite is False
+
+
+def test_detect_target_of_a_free_path_is_none(tmp_path):
+    assert duplicates.detect_target(tmp_path / "clip.mp4") is None
+
+
+def test_detect_target_does_not_treat_a_directory_as_a_file(tmp_path):
+    assert duplicates.detect_target(tmp_path) is None
+
+
+def test_free_name_leaves_an_unused_path_alone(tmp_path):
+    target = tmp_path / "clip.mp4"
+    assert duplicates.free_name(target) == target
+
+
+def test_free_name_steps_past_what_is_taken(tmp_path):
+    (tmp_path / "clip.mp4").write_bytes(b"a")
+    assert duplicates.free_name(tmp_path / "clip.mp4").name == "clip (2).mp4"
+
+
+def test_free_name_keeps_counting(tmp_path):
+    for name in ("clip.mp4", "clip (2).mp4", "clip (3).mp4"):
+        (tmp_path / name).write_bytes(b"a")
+    assert duplicates.free_name(tmp_path / "clip.mp4").name == "clip (4).mp4"
+
+
 def test_choices_offered_for_each_kind():
     assert duplicates.choices_for(BOTH) == (SKIP, RENAME, OVERWRITE)
     assert duplicates.choices_for(URL_ONLY) == (SKIP, DOWNLOAD)

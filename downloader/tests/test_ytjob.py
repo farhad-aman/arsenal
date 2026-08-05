@@ -150,7 +150,7 @@ def test_probe_only_simulates(job):
 def test_probe_asks_for_the_title_and_the_size(job):
     argv = ytjob.probe_command(job)
     printed = [argv[i + 1] for i, a in enumerate(argv) if a == "--print"]
-    assert printed == ["%(title)s", "%(filesize,filesize_approx)s"]
+    assert printed == ["%(title)s", "%(filename)s", "%(filesize,filesize_approx)s"]
 
 
 def test_probe_measures_the_format_that_will_be_fetched(tmp_path):
@@ -169,17 +169,37 @@ def test_probe_carries_the_proxy_and_cookies(tmp_path):
     assert argv[argv.index("--cookies-from-browser") + 1] == "chrome"
 
 
-def test_parse_probe_reads_the_title_and_total():
-    assert ytjob.parse_probe("Some Video\n18206810\n") == ("Some Video", 18206810)
+def test_parse_probe_reads_the_title_path_and_total():
+    got = ytjob.parse_probe("Some Video\n/movies/Some Video.mp4\n18206810\n")
+    assert got == ("Some Video", "/movies/Some Video.mp4", 18206810)
 
 
 def test_parse_probe_survives_an_unknown_size():
     """yt-dlp prints NA when it cannot work the size out."""
-    assert ytjob.parse_probe("Some Video\nNA\n") == ("Some Video", 0)
+    assert ytjob.parse_probe("Some Video\n/m/x.mp4\nNA\n") == ("Some Video", "/m/x.mp4", 0)
 
 
 def test_parse_probe_of_nothing_is_empty():
-    assert ytjob.parse_probe("") == ("", 0)
+    assert ytjob.parse_probe("") == ("", "", 0)
+
+
+def test_probe_asks_for_the_path_yt_dlp_would_write(job):
+    """Titles need sanitising before they are filenames; yt-dlp does that."""
+    argv = ytjob.probe_command(job)
+    printed = [argv[i + 1] for i, a in enumerate(argv) if a == "--print"]
+    assert "%(filename)s" in printed
+
+
+def test_command_uses_an_explicit_output_name_when_one_was_chosen(tmp_path, job):
+    job["outname"] = "clip (2).mp4"
+    argv = ytjob.command(job, tmp_path)
+    assert argv[argv.index("-o") + 1] == "clip (2).mp4"
+
+
+def test_command_forces_overwriting_only_when_asked(tmp_path, job):
+    assert "--force-overwrites" not in ytjob.command(job, tmp_path)
+    job["force"] = True
+    assert "--force-overwrites" in ytjob.command(job, tmp_path)
 
 
 def test_produced_file_comes_from_what_yt_dlp_reported(tmp_path, job):

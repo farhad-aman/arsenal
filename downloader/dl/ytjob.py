@@ -25,6 +25,8 @@ def new_job(
         "choices": asdict(choices),
         "proxy": proxy,
         "cookies_from": cookies_from,
+        "outname": "",
+        "force": False,
         "status": "queued",
         "title": "",
         "pid": 0,
@@ -90,7 +92,9 @@ def command(job: dict, state: Path) -> list[str]:
     argv += ["-P", f"home:{job['dir']}", "-P", f"temp:{scratch_dir(state, job)}"]
     # yt-dlp knows exactly what it produced; guessing from the folder does not.
     argv += ["--print-to-file", "after_move:filepath", str(result_marker(state, job))]
-    argv += ["-o", OUTPUT_TEMPLATE]
+    if job.get("force"):
+        argv.append("--force-overwrites")
+    argv += ["-o", job.get("outname") or OUTPUT_TEMPLATE]
     argv.append(job["url"])
     return argv
 
@@ -106,24 +110,31 @@ def probe_command(job: dict) -> list[str]:
         argv += ["--proxy", job["proxy"]]
     if job.get("cookies_from"):
         argv += ["--cookies-from-browser", job["cookies_from"]]
-    argv += ["-f", build_args(choices_of(job))[1]]
-    argv += ["--print", "%(title)s", "--print", "%(filesize,filesize_approx)s"]
+    argv += build_args(choices_of(job))
+    argv += ["-P", f"home:{job['dir']}", "-o", OUTPUT_TEMPLATE]
+    # %(filename)s is yt-dlp's own sanitised path — the only reliable way to
+    # know what it will write before it writes it.
+    argv += [
+        "--print",
+        "%(title)s",
+        "--print",
+        "%(filename)s",
+        "--print",
+        "%(filesize,filesize_approx)s",
+    ]
     argv.append(job["url"])
     return argv
 
 
-def parse_probe(output: str) -> tuple[str, int]:
-    """Title and total bytes from probe_command's two printed lines."""
+def parse_probe(output: str) -> tuple[str, str, int]:
+    """Title, destination path and total bytes from probe_command's output."""
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     if not lines:
-        return "", 0
+        return "", "", 0
     title = lines[0]
-    total = 0
-    for line in lines[1:]:
-        if line.isdigit():
-            total = int(line)
-            break
-    return title, total
+    filename = lines[1] if len(lines) > 1 and not lines[1].isdigit() else ""
+    total = next((int(line) for line in lines[1:] if line.isdigit()), 0)
+    return title, filename, total
 
 
 def produced_file(state: Path, job: dict) -> Path | None:

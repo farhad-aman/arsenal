@@ -59,7 +59,7 @@ def reported_speed(log: Path, tail: int = 4000) -> int:
         return -1
 
 
-def probe(job: dict) -> tuple[str, int]:
+def probe(job: dict) -> tuple[str, str, int]:
     try:
         done = subprocess.run(
             ytjob.probe_command(job),
@@ -69,7 +69,7 @@ def probe(job: dict) -> tuple[str, int]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return "", 0
+        return "", "", 0
     return ytjob.parse_probe(done.stdout)
 
 
@@ -164,7 +164,7 @@ def main(argv: list[str]) -> int:
     directory = Path(job["dir"])
     directory.mkdir(parents=True, exist_ok=True)
 
-    title, total = probe(job)
+    title, _filename, total = probe(job)
     if title or total:
         _update(state, job, title=title or job.get("title", ""), total=total)
 

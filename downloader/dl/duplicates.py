@@ -4,6 +4,7 @@ from pathlib import Path
 BOTH = "both"
 URL_ONLY = "url"
 PATH_ONLY = "path"
+TARGET = "target"
 
 SKIP = "skip"
 RENAME = "rename"
@@ -14,6 +15,7 @@ _CHOICES = {
     BOTH: (SKIP, RENAME, OVERWRITE),
     URL_ONLY: (SKIP, DOWNLOAD),
     PATH_ONLY: (SKIP, RENAME, OVERWRITE),
+    TARGET: (SKIP, RENAME, OVERWRITE),
 }
 
 
@@ -61,6 +63,29 @@ def _url_of(item: dict) -> str:
 
 def _kind_for(existing_url: str, url: str) -> str:
     return BOTH if existing_url == url else PATH_ONLY
+
+
+def detect_target(target: Path) -> Collision | None:
+    """Collision on the destination alone, ignoring where it came from.
+
+    For YouTube the URL says nothing useful: the same video at another
+    resolution is a different file that happens to share a name, and matching
+    on URL would call it a duplicate of itself.
+    """
+    if not target.is_file():
+        return None
+    return Collision(kind=TARGET, path=target, url="", size=target.stat().st_size)
+
+
+def free_name(target: Path) -> Path:
+    """The first unused 'name (n).ext' beside a taken one."""
+    if not target.exists():
+        return target
+    for index in range(2, 1000):
+        candidate = target.with_name(f"{target.stem} ({index}){target.suffix}")
+        if not candidate.exists():
+            return candidate
+    return target
 
 
 def detect(
