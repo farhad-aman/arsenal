@@ -2,7 +2,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import duplicates, routing, theme
+from . import duplicates, routing, search, theme
 from .config import Config, parse_rate
 from .destinations import ensure_writable
 from .format import human_bytes, human_speed
@@ -152,6 +152,11 @@ def cmd_add(
 LISTED_WHEN_STOPPED = ("error",)
 
 
+def _name_of(item: dict) -> str:
+    files = item.get("files") or [{}]
+    return Path(files[0].get("path", "")).name
+
+
 def _rows(client) -> list[dict]:
     stopped = [
         item for item in client.tell_stopped() if item.get("status") in LISTED_WHEN_STOPPED
@@ -173,8 +178,8 @@ def _proxy_badge(client, gid: str, cfg: Config) -> str:
     return "  " + glyph("🌐", theme.icons_on(cfg))
 
 
-def cmd_ls(cfg: Config, client, use_color: bool) -> int:
-    for item in _rows(client):
+def cmd_ls(cfg: Config, client, use_color: bool, query: str = "") -> int:
+    for item in search.keep(_rows(client), query, _name_of):
         total = int(item.get("totalLength", 0) or 0)
         done = int(item.get("completedLength", 0) or 0)
         pct = int(done * 100 / total) if total else 0
@@ -221,24 +226,26 @@ def cmd_history(cfg: Config, log: Path, args: list[str]) -> int:
     import json as _json
 
     wanted = [a for a in args if not a.startswith("-")]
-    count = HISTORY_DEFAULT
-    if wanted:
-        if not wanted[0].isdigit():
-            print(f"dl: history takes a number of entries, not {wanted[0]!r}", file=sys.stderr)
-            return 1
-        count = int(wanted[0])
+    counts = [a for a in wanted if a.isdigit()]
+    query = " ".join(a for a in wanted if not a.isdigit())
+    if len(counts) > 1:
+        print(f"dl: history takes one count, not {' and '.join(counts)}", file=sys.stderr)
+        return 1
+    count = int(counts[0]) if counts else HISTORY_DEFAULT
 
     from . import history
 
     # Filtering happens after the read, so `--failed 5` means five failures
-    # rather than however many appear in the last five downloads.
-    records = history.tail(log, max(count * 20, count) if "--failed" in args else count)
+    # rather than however many appear in the last five downloads. A query reads
+    # the whole log for the same reason: the match may be older than `count`.
+    reach = max(count * 20, count) if "--failed" in args else count
+    records = history.find(log, query, reach) if query else history.tail(log, reach)
     if "--failed" in args:
         records = [r for r in records if r.get("status") != "ok"]
     records = records[::-1][:count]
 
     if not records:
-        print("  nothing in the download history yet")
+        print(f'  nothing found matching "{query}"' if query else "  nothing in the download history yet")
         return 0
     for record in records:
         print(_json.dumps(record, ensure_ascii=False) if "--json" in args else history_line(record, cfg))
@@ -283,10 +290,46 @@ def forget_result(client, gid: str) -> None:
         pass
 
 
-def cmd_kill(client) -> int:
+def cmd_kill(client, state=None) -> int:
     client.shutdown()
+    if state is not None:
+        from . import daemon
+
+        daemon.clear_pid(state)
     print("  daemon stopped")
     return 0
+
+
+def cmd_strays(state, confirm=None) -> int:
+    """Show what is listening on the ports older versions could roam to.
+
+    None of these can be reached — they hold a secret no state directory has —
+    so the only thing to do with one is stop it, and only after it has been
+    named.
+    """
+    from . import daemon
+
+    found = daemon.strays(state)
+    if not found:
+        print("  no stray daemons")
+        return 0
+    print(f"  {len(found)} stray daemon{'s' if len(found) > 1 else ''}, unreachable by dl:")
+    for port in found:
+        print(f"    port {port}   (downloads it holds cannot be listed)")
+    ask = confirm if confirm is not None else _ask_yes
+    if not ask("  stop them? [y/N] "):
+        print("  left alone")
+        return 0
+    stopped = daemon.stop_strays(found)
+    print(f"  stopped {stopped} of {len(found)}")
+    return 0
+
+
+def _ask_yes(prompt: str) -> bool:
+    try:
+        return input(prompt).strip().lower() in ("y", "yes")
+    except (EOFError, KeyboardInterrupt):
+        return False
 
 
 def read_url_file(source: str) -> list[str]:

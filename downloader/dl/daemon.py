@@ -1,6 +1,7 @@
 import os
 import secrets
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -11,7 +12,12 @@ from . import config as config_module
 from .config import STATE_DIR, Config
 from .rpc import Aria2, Aria2Error, Aria2Unreachable
 
-PORT_RANGE = range(6810, 6820)
+# One port, not a range. Roaming to the next free port when this one was busy
+# is how a second daemon came to exist beside the first, holding downloads
+# nothing could reach and nothing knew about. DL_PORT exists so a test run can
+# have its own daemon without fighting the real one for the port.
+PORT = int(os.environ.get("DL_PORT") or 6810)
+LEGACY_PORTS = range(6810, 6820)
 _SHIM = (
     "#!/bin/sh\n"
     'exec env DL_STATE_DIR={state} DL_CONFIG_FILE={config} {python} -m dl.hook {mode} "$@"\n'
@@ -56,7 +62,52 @@ def read_port(state: Path) -> int:
     try:
         return int(target.read_text().strip())
     except (OSError, ValueError):
-        return PORT_RANGE.start
+        return PORT
+
+
+def read_pid(state: Path) -> int:
+    try:
+        return int((state / "daemon.pid").read_text().strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def write_pid(state: Path, pid: int) -> None:
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "daemon.pid").write_text(str(pid))
+
+
+def clear_pid(state: Path) -> None:
+    (state / "daemon.pid").unlink(missing_ok=True)
+
+
+def alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _terminate(pid: int, wait: float = 5.0) -> None:
+    """Stop a daemon of ours that no longer answers its own secret."""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if not alive(pid):
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
 
 
 def write_port(state: Path, port: int) -> None:
@@ -152,10 +203,20 @@ def _bindable(port: int) -> bool:
             return False
 
 
+def _wait_bindable(port: int, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        if _bindable(port):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
 def _spawn(cfg: Config, state: Path, port: int, secret: str) -> None:
     state.mkdir(parents=True, exist_ok=True)
     with open(state / "spawn.log", "wb") as log:
-        subprocess.Popen(
+        process = subprocess.Popen(
             aria2_args(cfg, state, port, secret),
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -164,6 +225,57 @@ def _spawn(cfg: Config, state: Path, port: int, secret: str) -> None:
             cwd=os.path.expanduser("~"),
             env=spawn_env(),
         )
+    write_pid(state, process.pid)
+
+
+def listening(port: int) -> bool:
+    return not _bindable(port)
+
+
+def strays(state: Path) -> list[int]:
+    """Ports in the old range with something on them that is not our daemon.
+
+    Older versions moved to the next free port when this one was busy, so a
+    machine can be carrying daemons no state directory knows about.
+    """
+    secret = read_secret(state)
+    # Anything answering our secret is ours wherever it sits, including a
+    # daemon an older version left on a port it wandered to. Those are retired
+    # on the next start; a stray is one nothing can talk to.
+    return [
+        port
+        for port in LEGACY_PORTS
+        if listening(port) and _probe(port, secret) != "ours"
+    ]
+
+
+def pid_on(port: int) -> int:
+    """aria2 masks its own process title, so the port is the only handle."""
+    try:
+        out = subprocess.run(
+            ["lsof", "-nP", "-iTCP:%d" % port, "-sTCP:LISTEN", "-t"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    first = out.split()
+    try:
+        return int(first[0]) if first else 0
+    except ValueError:
+        return 0
+
+
+def stop_strays(ports: list[int]) -> int:
+    stopped = 0
+    for port in ports:
+        pid = pid_on(port)
+        if pid:
+            _terminate(pid)
+            stopped += 1
+    return stopped
 
 
 def _tail_log(state: Path, lines: int = 20) -> str:
@@ -176,33 +288,61 @@ def _tail_log(state: Path, lines: int = 20) -> str:
     return "(no log output)"
 
 
+def _retire_wanderer(state: Path, secret: str) -> None:
+    """Bring home a daemon an older version left on some other port.
+
+    It answers our secret, so it is ours and can be asked to stop rather than
+    killed: aria2 writes its session on the way down, and the downloads it was
+    carrying come back when the daemon restarts on the one port.
+    """
+    previous = read_port(state)
+    if previous == PORT or _probe(previous, secret) != "ours":
+        return
+    try:
+        Aria2("127.0.0.1", previous, secret, timeout=2.0).shutdown()
+    except (Aria2Error, Aria2Unreachable):
+        return
+    # Wait for it to be gone, not merely unresponsive: aria2 writes its
+    # session on the way out, and a replacement that starts first reads a
+    # session file that does not yet hold the queue.
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline and _probe(previous, secret) == "ours":
+        time.sleep(0.05)
+    _wait_bindable(previous, 5.0)
+
+
 def ensure_running(cfg: Config, state: Path = STATE_DIR) -> Aria2:
     if shutil.which("aria2c") is None:
         raise Aria2Missing("aria2c not found — brew install aria2")
 
     secret = read_secret(state)
-    preferred = read_port(state)
-    candidates = [preferred] + [p for p in PORT_RANGE if p != preferred]
 
-    free_ports = []
-    for port in candidates:
-        status = _probe(port, secret)
-        if status == "ours":
-            write_port(state, port)
-            return Aria2("127.0.0.1", port, secret)
-        if status == "free":
-            free_ports.append(port)
+    if _probe(PORT, secret) == "ours":
+        write_port(state, PORT)
+        return Aria2("127.0.0.1", PORT, secret)
 
-    if not free_ports:
-        raise DaemonStartFailed(f"no free port in {PORT_RANGE.start}-{PORT_RANGE.stop - 1}")
+    _retire_wanderer(state, secret)
 
-    for port in free_ports:
-        if not _bindable(port):
-            continue
-        _spawn(cfg, state, port, secret)
-        if _await_rpc(port, secret, 5.0):
-            write_port(state, port)
-            return Aria2("127.0.0.1", port, secret)
+    # Not answering, but our own pid file says it is alive: a daemon of ours
+    # holding a secret it no longer shares. Nothing can reach it, so it goes
+    # rather than being left to hold the port and its downloads unseen.
+    stale = read_pid(state)
+    if alive(stale):
+        _terminate(stale)
+        clear_pid(state)
+
+    # A daemon just asked to stop keeps its listening socket for a moment, so
+    # "cannot bind" right now does not mean the port belongs to someone else.
+    if not _wait_bindable(PORT, 5.0):
+        raise DaemonStartFailed(
+            f"port {PORT} is held by something that is not dl — "
+            f"stop it, or run `dl kill --strays` to see what is listening"
+        )
+
+    _spawn(cfg, state, PORT, secret)
+    if _await_rpc(PORT, secret, 5.0):
+        write_port(state, PORT)
+        return Aria2("127.0.0.1", PORT, secret)
 
     quarantine_session(state)
     raise DaemonStartFailed(f"aria2c did not answer within 5s\n{_tail_log(state)}")

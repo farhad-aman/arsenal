@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -9,7 +10,19 @@ from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from .. import cli, config, duplicates, history, routing, search, sort, theme, youtube, ytjob
+from .. import (
+    cli,
+    config,
+    duplicates,
+    history,
+    instance,
+    routing,
+    search,
+    sort,
+    theme,
+    youtube,
+    ytjob,
+)
 from ..theme import glyph
 from ..config import CONFIG_FILE, STATE_DIR, Config
 from ..format import cells, human_bytes
@@ -923,6 +936,21 @@ class DlApp(App):
         self.push_screen(DeleteModal(record.get("name", "") or "entry", has_file), chosen)
 
 
-def run_tui(cfg: Config, client) -> int:
-    DlApp(cfg, client).run()
+def run_tui(cfg: Config, client, state=STATE_DIR) -> int:
+    """One dashboard at a time.
+
+    Two would each act on the same queue from their own idea of what is in it,
+    and the second to refresh would undo what the first had just done.
+    """
+    if not instance.acquire(state):
+        print(
+            f"dl is already running (pid {instance.holder(state)}) — "
+            f"switch to that window, or `dl kill` to stop everything",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        DlApp(cfg, client).run()
+    finally:
+        instance.release(state)
     return 0

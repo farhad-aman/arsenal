@@ -19,6 +19,14 @@ pytestmark = pytest.mark.skipif(shutil.which("aria2c") is None, reason="aria2c n
 PAYLOAD = b"x" * (5 * 1024 * 1024)
 
 
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
 @pytest.fixture
 def fileserver(tmp_path):
     root = tmp_path / "www"
@@ -49,11 +57,17 @@ def env(tmp_path, monkeypatch):
         f'[categories.iso]\ndir = "{downloads / "ISO"}"\next = ["iso"]\n'
         f'icon = "💿"\nhue = "#4aa3ff"\n'
     )
+    # Its own port as well as its own state directory. dl runs on one fixed
+    # port now, so without this a test run and the real daemon fight over it —
+    # and the loser is whichever one the developer was using.
+    port = _free_port()
     monkeypatch.setenv("DL_STATE_DIR", str(state))
     monkeypatch.setenv("DL_CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("DL_PORT", str(port))
     monkeypatch.setattr(config, "STATE_DIR", state)
     monkeypatch.setattr(config, "CONFIG_FILE", config_file)
     monkeypatch.setattr(daemon, "STATE_DIR", state)
+    monkeypatch.setattr(daemon, "PORT", port)
     yield cfg, state
     try:
         Aria2("127.0.0.1", daemon.read_port(state), daemon.read_secret(state), timeout=1).shutdown()

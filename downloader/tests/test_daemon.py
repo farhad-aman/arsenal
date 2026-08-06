@@ -21,8 +21,8 @@ def test_read_secret_is_stable_across_calls(tmp_path):
     assert daemon.read_secret(tmp_path) == daemon.read_secret(tmp_path)
 
 
-def test_read_port_defaults_to_first_in_range(tmp_path):
-    assert daemon.read_port(tmp_path) == daemon.PORT_RANGE.start
+def test_read_port_defaults_to_the_one_port(tmp_path):
+    assert daemon.read_port(tmp_path) == daemon.PORT
 
 
 def test_write_then_read_port(tmp_path):
@@ -32,7 +32,7 @@ def test_write_then_read_port(tmp_path):
 
 def test_read_port_ignores_garbage(tmp_path):
     (tmp_path / "port").write_text("not-a-port")
-    assert daemon.read_port(tmp_path) == daemon.PORT_RANGE.start
+    assert daemon.read_port(tmp_path) == daemon.PORT
 
 
 def test_hook_shims_are_executable_and_exec_the_venv(tmp_path):
@@ -134,33 +134,32 @@ def test_bindable_is_false_while_a_socket_holds_the_port():
     assert daemon._bindable(port) is True
 
 
-def test_ensure_running_skips_ports_that_cannot_be_bound(tmp_path, cfg, monkeypatch):
-    blocked = daemon.PORT_RANGE.start
+def test_a_held_port_is_reported_rather_than_worked_around(tmp_path, cfg, monkeypatch):
+    """dl used to move to the next free port. That is how daemons nothing
+    could reach ended up running beside the real one."""
     monkeypatch.setattr(daemon.shutil, "which", lambda _: "/usr/bin/aria2c")
     monkeypatch.setattr(daemon, "_probe", lambda port, secret: "free")
-    monkeypatch.setattr(daemon, "_bindable", lambda port: port != blocked)
+    monkeypatch.setattr(daemon, "_bindable", lambda port: False)
 
     spawned = []
     monkeypatch.setattr(daemon, "_spawn", lambda c, s, port, sec: spawned.append(port))
-    monkeypatch.setattr(daemon, "_await_rpc", lambda port, sec, t: True)
-
-    client = daemon.ensure_running(cfg, tmp_path)
-    assert blocked not in spawned
-    assert client.port == spawned[0]
+    with pytest.raises(daemon.DaemonStartFailed):
+        daemon.ensure_running(cfg, tmp_path)
+    assert spawned == []
 
 
-def test_ensure_running_tries_the_next_port_when_a_spawn_never_answers(tmp_path, cfg, monkeypatch):
+def test_a_spawn_that_never_answers_fails_on_the_one_port(tmp_path, cfg, monkeypatch):
     monkeypatch.setattr(daemon.shutil, "which", lambda _: "/usr/bin/aria2c")
     monkeypatch.setattr(daemon, "_probe", lambda port, secret: "free")
     monkeypatch.setattr(daemon, "_bindable", lambda port: True)
 
     spawned = []
     monkeypatch.setattr(daemon, "_spawn", lambda c, s, port, sec: spawned.append(port))
-    monkeypatch.setattr(daemon, "_await_rpc", lambda port, sec, t: len(spawned) > 1)
+    monkeypatch.setattr(daemon, "_await_rpc", lambda port, sec, t: False)
 
-    client = daemon.ensure_running(cfg, tmp_path)
-    assert len(spawned) == 2
-    assert client.port == spawned[1]
+    with pytest.raises(daemon.DaemonStartFailed):
+        daemon.ensure_running(cfg, tmp_path)
+    assert spawned == [daemon.PORT]
 
 
 def test_ensure_running_without_binary_raises(tmp_path, cfg, monkeypatch):

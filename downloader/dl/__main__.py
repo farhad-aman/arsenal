@@ -18,11 +18,12 @@ dl — download manager
   --no-preview             queue and exit without attaching the live preview
   dl                       open the TUI
 
-  dl ls                    list downloads
-  dl history [n]           list finished downloads (--failed, --json)
+  dl ls [name]             list downloads, optionally matching a name
+  dl history [n] [name]    list finished downloads (--failed, --json)
   dl pause <gid|all>       dl resume <gid|all>      dl rm <gid>
   dl watch                 queue URLs as you copy them
   dl kill                  stop the daemon
+  dl kill --strays         find daemons older versions left behind
 """
 
 SUBCOMMANDS = {"ls", "history", "pause", "resume", "rm", "watch", "kill", "help"}
@@ -100,6 +101,11 @@ def _run(args: list[str]) -> int:
     if command is None:
         urls += [a for a in args if not a.startswith("-")]
 
+    if command == "kill" and "--strays" in args:
+        # Starting a daemon in order to list the ones that should not exist
+        # would be a poor answer to the question.
+        return cli.cmd_strays(config.STATE_DIR)
+
     if command == "history":
         # Reading a file needs no daemon, and starting one to print it would be
         # a slow surprise for a command that only looks at the past.
@@ -115,7 +121,8 @@ def _run(args: list[str]) -> int:
         return 1
 
     if command == "ls":
-        return cli.cmd_ls(cfg, client, use_color=sys.stdout.isatty())
+        query = " ".join(a for a in args[1:] if not a.startswith("-"))
+        return cli.cmd_ls(cfg, client, use_color=sys.stdout.isatty(), query=query)
     if command == "pause":
         return cli.cmd_pause(args[1] if len(args) > 1 else "all", client)
     if command == "resume":
@@ -126,7 +133,7 @@ def _run(args: list[str]) -> int:
             return 1
         return cli.cmd_rm(args[1], client)
     if command == "kill":
-        return cli.cmd_kill(client)
+        return cli.cmd_kill(client, config.STATE_DIR)
     if command == "watch":
         from . import watch
 

@@ -622,9 +622,11 @@ def test_history_survives_a_record_missing_everything(sandbox_cfg, tmp_path, cap
     assert capsys.readouterr().out.strip()
 
 
-def test_history_rejects_a_count_that_is_not_a_number(sandbox_cfg, tmp_path, capsys):
+def test_history_treats_a_word_as_a_name_to_match(sandbox_cfg, tmp_path, capsys):
+    """It used to be an error. A bare word is now the query."""
     log = write_history(tmp_path, [hist()])
-    assert cli.cmd_history(sandbox_cfg, log, ["banana"]) == 1
+    assert cli.cmd_history(sandbox_cfg, log, ["banana"]) == 0
+    assert "nothing found" in capsys.readouterr().out.lower()
 
 
 def headers_cfg(cfg, rules):

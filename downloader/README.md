@@ -76,6 +76,29 @@ Completed tab are dashboard-only — run `dl` for those.
 in `dl history`, which is a file on disk and outlives the daemon; a removed one
 is gone from both. The two never show the same download.
 
+Both take a name to match: `dl ls ubuntu`, `dl history ubuntu`, `dl history 50
+ubuntu`. Matching is the same as `/` in the dashboard — case-insensitive and
+Unicode-normalised — and a history query reads the whole log rather than the
+last twenty, so an old download is findable.
+
+## One daemon
+
+There is one aria2 daemon on one port, and one dashboard. A second `dl` window
+is refused rather than opened beside the first: both would act on the same
+queue from their own idea of what is in it.
+
+Earlier versions moved to the next free port when theirs was busy, which is how
+a machine ends up carrying daemons nothing can reach — holding downloads that
+never appear anywhere. Starting `dl` now brings its own daemon back to the one
+port, carrying its queue across; `dl kill --strays` finds anything left over
+from before and stops it once you have seen what it is.
+
+If the port is genuinely held by something else, `dl` says so instead of
+quietly starting somewhere new.
+
+`DL_STATE_DIR` and `DL_PORT` exist so the test suite can run its own daemon
+without touching yours. They are testing hooks, not a way to run two copies.
+
 `dl ls` prints fixed columns with no colour when piped, so `dl ls | grep paused`
 works.
 
