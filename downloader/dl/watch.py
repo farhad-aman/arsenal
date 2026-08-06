@@ -1,10 +1,11 @@
 import shutil
 import subprocess
+import sys
 import time
 from collections import deque
 from pathlib import Path
 
-from . import cli, duplicates, history, routing, theme, youtube
+from . import cli, duplicates, history, instance, routing, theme, youtube
 from .config import STATE_DIR, Config
 from .rpc import Aria2Error, Aria2Unreachable
 
@@ -121,7 +122,27 @@ def run(
     interval: float = 0.8,
     reader=None,
     iterations: int | None = None,
+    state: Path = STATE_DIR,
 ) -> int:
+    """Queue whatever URL is copied, until stopped.
+
+    Holds the same lock the dashboard does. It has no window, but it runs
+    until told otherwise and queues downloads while it does, which makes it a
+    copy of dl rather than one of its commands.
+    """
+    if not instance.acquire(state):
+        print(
+            f"dl is already running (pid {instance.holder(state)})",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        return _watch(cfg, client, interval, reader, iterations)
+    finally:
+        instance.release(state)
+
+
+def _watch(cfg, client, interval, reader, iterations) -> int:
     source = reader or read_clipboard
     seen: deque = deque(maxlen=20)
     print("  watching clipboard — Ctrl-C to stop")

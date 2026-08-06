@@ -90,7 +90,17 @@ queue from their own idea of what is in it.
 `dl <url>` normally attaches a live view of what it just queued. That view is a
 dashboard too, so with one already open it stands down and prints a line
 instead — the download is queued either way, and the open window is where it
-appears. Every other subcommand is a short-lived client and runs whenever.
+appears.
+
+`dl watch` takes the lock as well. It has no window, but it runs until stopped
+and queues downloads while it does, which makes it a copy of dl rather than one
+of its commands.
+
+Everything else — `dl ls`, `dl history`, `dl pause`, `dl rm` — is a short-lived
+client and runs whenever, including alongside an open dashboard.
+
+A lock left behind by something that was killed names a process that is gone,
+and is taken over rather than honoured, so a crash cannot shut you out.
 
 Earlier versions moved to the next free port when theirs was busy, which is how
 a machine ends up carrying daemons nothing can reach — holding downloads that
