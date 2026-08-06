@@ -142,7 +142,7 @@ def test_render_row_badges_without_emoji_in_a_mono_theme(cfg):
     mono = theme.THEMES["mono"]
     proxied = render_row(row_from_status(status(), cfg, proxied=True), mono, 100, False, 0)
     assert "🌐" not in proxied[0]
-    assert "via proxy" in proxied[0].lower() or "[p]" in proxied[0].lower()
+    assert theme.GLYPHS["🌐"] in proxied[0]
 
 
 def test_render_row_keeps_its_two_line_shape_when_proxied(cfg, th):

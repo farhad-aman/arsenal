@@ -10,7 +10,7 @@ from textual.widgets import Static
 from .. import duplicates, history, routing, ytjob, ytrun
 from ..config import STATE_DIR, Config
 from ..format import human_bytes
-from ..theme import select
+from ..theme import glyph, select
 from .modals import ConfirmModal, DuplicateModal
 from .picker import CancelAll, PickerScreen
 from .table import DownloadTable, row_from_job
@@ -180,7 +180,7 @@ class YouTubeSetupApp(App):
         self._ask_options(index + 1)
 
 
-CHECKING = "  ⏳  asking YouTube what this is…"
+CHECKING = "  asking YouTube what this is…"
 SETTLED = ("complete", "error", "cancelled")
 WATCH_HINT = "^C detach — the download keeps going    d delete in `dl`"
 
@@ -232,19 +232,20 @@ class YouTubeWatchApp(App):
 def watch(cfg: Config, jobs: list[dict]) -> list[str]:
     app = YouTubeWatchApp(cfg, [job["id"] for job in jobs])
     app.run()
-    return summarise(app.finished or jobs)
+    return summarise(app.finished or jobs, select(cfg).icons)
 
 
-def summarise(jobs: list[dict]) -> list[str]:
+def summarise(jobs: list[dict], icons: bool = True) -> list[str]:
     lines = []
     for job in jobs:
         name = Path(job.get("file") or "").name or job.get("url", "")
         if job.get("status") == "complete":
-            lines.append(f"  ✅ {name}   {human_bytes(int(job.get('done', 0) or 0))}")
+            mark = glyph("✅", icons)
+            lines.append(f"  {mark} {name}   {human_bytes(int(job.get('done', 0) or 0))}")
         elif job.get("status") == "error":
-            lines.append(f"  ❌ {name}   {job.get('error', 'failed')}")
+            lines.append(f"  {glyph('❌', icons)} {name}   {job.get('error', 'failed')}")
         else:
-            lines.append(f"  ⏳ {name}   still downloading — `dl` to watch")
+            lines.append(f"  {glyph('⏳', icons)} {name}   still downloading — `dl` to watch")
     return lines
 
 
@@ -262,7 +263,11 @@ def run_youtube(cfg: Config, urls: list[str], proxy: bool = False) -> tuple[list
     app.run()
     if app.cancelled:
         return ["  ✖ cancelled — nothing queued"], True
-    skipped = [f"  ⏭  skipped  {Path(j['url']).name or j['url']}  — already there" for j in app.skipped]
+    mark = glyph("⏭", select(cfg).icons)
+    skipped = [
+        f"  {mark}  skipped  {Path(j['url']).name or j['url']}  — already there"
+        for j in app.skipped
+    ]
     if not app.queued:
         return skipped, False
     return skipped + watch(cfg, app.queued), False

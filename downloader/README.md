@@ -213,7 +213,7 @@ restart it, or make the change from the screen.
 | `general.max_concurrent` | `3` | parallel downloads |
 | `general.idle_timeout` | `"10m"` | daemon self-shutdown after the queue empties |
 | `general.theme` | `"aurora"` | `aurora`, `ember`, `matrix`, `mono` |
-| `general.ascii_icons` | `false` | replace emoji with 2-letter tags |
+| `general.ascii_icons` | `false` | replace every emoji with an ASCII stand-in |
 | `general.notify` | `true` | macOS banner on completion |
 | `hooks.on_complete` | `""` | command to run after each finished download |
 | `hooks.timeout` | `"5m"` | how long that command may take |

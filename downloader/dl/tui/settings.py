@@ -8,15 +8,25 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
 from .. import config as config_module
-from .. import settings, tomlio
+from .. import settings, theme as theme_module, tomlio
 from ..config import Config
 
 HINT = "↑↓ field   ←→ change   ⏎ edit   ^S save   esc cancel"
 MENU_HINT = "↑↓ move   ⏎ open   esc close"
 CYCLED = ("choice", "bool")
 
+class IconMixin:
+    """Every settings screen holds a cfg, so each can ask it about icons."""
 
-class FormScreen(ModalScreen[dict]):
+    @property
+    def _icons(self) -> bool:
+        return theme_module.icons_on(self.cfg)
+
+    def _g(self, symbol: str) -> str:
+        return theme_module.glyph(symbol, self._icons)
+
+
+class FormScreen(IconMixin, ModalScreen[dict]):
     """One screen for any list of scalar settings.
 
     Dismisses with the fields that changed, so the caller writes only those and
@@ -61,7 +71,7 @@ class FormScreen(ModalScreen[dict]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-box"):
-            yield Static(f"  ⚙  {self.title_text}", id="settings-head")
+            yield Static(f"  {self._g('⚙')}  {self.title_text}", id="settings-head")
             yield Static("", id="settings-list")
             yield Input("", id="settings-input")
             yield Static("", id="settings-error")
@@ -150,7 +160,7 @@ class FormScreen(ModalScreen[dict]):
         try:
             self.values[entry.path] = settings.parse(entry, self.input_value)
         except settings.Invalid as exc:
-            self.error = f"  ⚠  {entry.label}: {exc}"
+            self.error = f"  {self._g('⚠')}  {entry.label}: {exc}"
             self._repaint()
             return
         self._close_editor()
@@ -192,7 +202,7 @@ SECTIONS = (
 LIST_ROWS = ("Proxy", "Headers", "Categories")
 
 
-class SettingsMenuScreen(ModalScreen[None]):
+class SettingsMenuScreen(IconMixin, ModalScreen[None]):
     BINDINGS = [
         ("escape", "close", "close"),
         Binding("up", "previous", "up", priority=True),
@@ -215,7 +225,7 @@ class SettingsMenuScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-box"):
-            yield Static("  ⚙  Settings", id="settings-head")
+            yield Static(f"  {self._g('⚙')}  Settings", id="settings-head")
             yield Static("", id="settings-list")
             yield Static(MENU_HINT, id="settings-hint")
 
@@ -228,7 +238,7 @@ class SettingsMenuScreen(ModalScreen[None]):
             # it would destroy whatever the user actually wrote.
             self.blocked = True
             self.problem = (
-                f"  ⚠  config.toml has a syntax error on line {exc.line} —\n"
+                f"  {self._g('⚠')}  config.toml has a syntax error on line {exc.line} —\n"
                 f"     fix it before editing here. dl is running on defaults\n"
                 f"     until it parses."
             )
@@ -296,7 +306,7 @@ class SettingsMenuScreen(ModalScreen[None]):
 LIST_HINT = "↑↓ move   a add   d delete   ⏎ edit   u url   ^S save   esc cancel"
 
 
-class ProxyScreen(ModalScreen[dict]):
+class ProxyScreen(IconMixin, ModalScreen[dict]):
     """The proxy URL, and the hosts always sent through it."""
 
     AUTO_FOCUS = ""
@@ -324,7 +334,7 @@ class ProxyScreen(ModalScreen[dict]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-box"):
-            yield Static("  ⚙  Proxy", id="settings-head")
+            yield Static(f"  {self._g('⚙')}  Proxy", id="settings-head")
             yield Static("", id="settings-list")
             yield Input("", id="settings-input")
             yield Static("", id="settings-error")
@@ -348,11 +358,11 @@ class ProxyScreen(ModalScreen[dict]):
     def add_domain(self, value: str) -> None:
         text = value.strip().lower()
         if not text:
-            self.error = "  ⚠  a domain cannot be empty"
+            self.error = f"  {self._g('⚠')}  a domain cannot be empty"
             self._repaint()
             return
         if text in self.domains:
-            self.error = f"  ⚠  {text} is already listed"
+            self.error = f"  {self._g('⚠')}  {text} is already listed"
             self._repaint()
             return
         self.domains.append(text)
@@ -405,7 +415,7 @@ class ProxyScreen(ModalScreen[dict]):
         if self.editing == "url":
             text = value.strip()
             if not text:
-                self.error = "  ⚠  the proxy needs a URL"
+                self.error = f"  {self._g('⚠')}  the proxy needs a URL"
                 self._repaint()
                 return
             self.url = text
@@ -414,7 +424,7 @@ class ProxyScreen(ModalScreen[dict]):
         elif self.editing == "edit" and self.domains:
             text = value.strip().lower()
             if not text:
-                self.error = "  ⚠  a domain cannot be empty"
+                self.error = f"  {self._g('⚠')}  a domain cannot be empty"
                 self._repaint()
                 return
             self.domains[self.cursor] = text
@@ -452,7 +462,7 @@ HEADER_HINT = "↑↓ move   a add   d delete   ^S save   esc cancel"
 HEADER_FORM = "host | key | value"
 
 
-class HeadersScreen(ModalScreen[dict]):
+class HeadersScreen(IconMixin, ModalScreen[dict]):
     """Per-host request headers.
 
     TOML nests these two deep. The editor keeps them flat — one row per
@@ -486,7 +496,7 @@ class HeadersScreen(ModalScreen[dict]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-box"):
-            yield Static("  ⚙  Headers", id="settings-head")
+            yield Static(f"  {self._g('⚙')}  Headers", id="settings-head")
             yield Static("", id="settings-list")
             yield Input("", id="settings-input", placeholder=HEADER_FORM)
             yield Static("", id="settings-error")
@@ -510,7 +520,7 @@ class HeadersScreen(ModalScreen[dict]):
     def add_rule(self, raw: str) -> None:
         parts = [piece.strip() for piece in raw.split("|")]
         if len(parts) != 3 or not all(parts):
-            self.error = f"  ⚠  write it as {HEADER_FORM}"
+            self.error = f"  {self._g('⚠')}  write it as {HEADER_FORM}"
             self._repaint()
             return
         host, key, value = parts
@@ -581,7 +591,7 @@ class HeadersScreen(ModalScreen[dict]):
 CATEGORY_HINT = "↑↓ move   a add   d delete   ⏎ edit   ^S save   esc cancel"
 
 
-class CategoriesScreen(ModalScreen[dict]):
+class CategoriesScreen(IconMixin, ModalScreen[dict]):
     """The categories that decide where a file lands.
 
     The built-in eight have no special status: config.load() already merges
@@ -627,7 +637,7 @@ class CategoriesScreen(ModalScreen[dict]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-box"):
-            yield Static("  ⚙  Categories", id="settings-head")
+            yield Static(f"  {self._g('⚙')}  Categories", id="settings-head")
             yield Static("", id="settings-list")
             yield Input("", id="settings-input", placeholder="new category name")
             yield Static("", id="settings-error")
@@ -642,7 +652,8 @@ class CategoriesScreen(ModalScreen[dict]):
         for index, name in enumerate(self.names):
             marker = "▌" if index == self.cursor else " "
             entry = self.entries[name]
-            rows.append(f"{marker} {entry['icon']} {name:<12} {entry['dir']}")
+            shown = entry['icon'] if self._icons else name[:2].upper().ljust(2)
+            rows.append(f"{marker} {shown} {name:<12} {entry['dir']}")
         self.body = "\n".join(rows)
         self.query_one("#settings-list", Static).update(self.body)
         self.query_one("#settings-error", Static).update(self.error)
@@ -650,11 +661,11 @@ class CategoriesScreen(ModalScreen[dict]):
     def add_category(self, raw: str) -> None:
         name = raw.strip().lower()
         if not name:
-            self.error = "  ⚠  a category needs a name"
+            self.error = f"  {self._g('⚠')}  a category needs a name"
             self._repaint()
             return
         if name in self.entries:
-            self.error = f"  ⚠  {name} already exists"
+            self.error = f"  {self._g('⚠')}  {name} already exists"
             self._repaint()
             return
         self.entries[name] = {

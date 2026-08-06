@@ -2,11 +2,12 @@ import sys
 import time
 from pathlib import Path
 
-from . import duplicates, routing
+from . import duplicates, routing, theme
 from .config import Config, parse_rate
 from .destinations import ensure_writable
 from .format import human_bytes, human_speed
 from .routing import Resolution
+from .theme import glyph
 from .rpc import Aria2Error, Aria2Unreachable
 
 SCHEMES = ("http://", "https://", "ftp://", "ftps://", "sftp://", "magnet:")
@@ -105,6 +106,8 @@ def cmd_add(
         return 1, []
     failures = 0
     gids: list[str] = []
+    resolved_theme = theme.select(cfg)
+    icons = resolved_theme.icons
     for index, url in enumerate(urls):
         name = routing.filename_from_url(url)
         routed = routing.resolve(url, name, cfg)
@@ -113,7 +116,7 @@ def cmd_add(
         resolution = Resolution(Path(target), routed.category)
         decision = decisions[index] if decisions and index < len(decisions) else None
         if decision == duplicates.SKIP:
-            print(f"  ⏭  skipped  {name or url}  — already there")
+            print(f"  {glyph('⏭', icons)}  skipped  {name or url}  — already there")
             continue
         if not ensure_writable(resolution.path):
             print(f"dl: cannot write to {resolution.path}", file=sys.stderr)
@@ -126,10 +129,12 @@ def cmd_add(
         gids.append(
             client.add_uri([url], add_options(cfg, resolution, via_proxy, decision, sent))
         )
-        via = "  🌐 via proxy" if via_proxy else ""
-        replaced = "  ♻️ overwriting" if decision == duplicates.OVERWRITE else ""
+        via = f"  {glyph('🌐', icons)} via proxy" if via_proxy else ""
+        replaced = (
+            f"  {glyph('♻️', icons)} overwriting" if decision == duplicates.OVERWRITE else ""
+        )
         print(
-            f"  {resolution.category.icon} queued  {name or url}"
+            f"  {theme.icon_for(resolution.category, resolved_theme)} queued  {name or url}"
             f"  →  {resolution.path}{via}{replaced}"
         )
     return (1 if failures else 0), gids
@@ -150,7 +155,7 @@ def _proxy_badge(client, gid: str, cfg: Config) -> str:
         return ""
     if not went_through_proxy(options):
         return ""
-    return "  [proxy]" if cfg.general.ascii_icons else "  🌐"
+    return "  " + glyph("🌐", theme.icons_on(cfg))
 
 
 def cmd_ls(cfg: Config, client, use_color: bool) -> int:
@@ -191,7 +196,7 @@ def history_line(record: dict, cfg: Config) -> str:
     if str(where) not in ("", "."):
         line += f"  →  {where}"
     if record.get("proxy"):
-        line += "  [proxy]" if cfg.general.ascii_icons else "  🌐"
+        line += "  " + glyph("🌐", theme.icons_on(cfg))
     if not ok and record.get("error"):
         line += f"  — {record['error']}"
     return line

@@ -77,10 +77,48 @@ def select(cfg: Config, env: dict[str, str] | None = None) -> Theme:
     return chosen
 
 
+GLYPHS = {
+    "✅": "[ok]",
+    "❌": "[fail]",
+    "⏳": "[..]",
+    "⏭": "[skip]",
+    "♻️": "[replace]",
+    "🌐": "[proxy]",
+    "⚙": "*",
+    "⚠": "!",
+    "‼️": "!!",
+    "🕘": "[recent]",
+    "📥": "[dir]",
+    "▶": ">",
+    "⏸": "||",
+    "🚀": ">>",
+    "⏱": "~",
+    "📂": "@",
+}
+
+
+def glyph(symbol: str, icons: bool) -> str:
+    """The ASCII stand-in for an emoji.
+
+    Some terminal fonts draw emoji one cell wide instead of two, which shifts
+    every column after them out of line. These stand-ins are unambiguous.
+    """
+    return symbol if icons else GLYPHS.get(symbol, symbol)
+
+
+def icons_on(cfg: Config) -> bool:
+    """For the places that hold a config rather than a resolved theme."""
+    return select(cfg).icons
+
+
 def icon_for(category: Category, theme: Theme) -> str:
     if theme.icons:
         return category.icon
     return category.name[:2].upper().ljust(2)
+
+
+def category_icon(category: Category, cfg: Config) -> str:
+    return icon_for(category, select(cfg))
 
 
 def ramp_color(theme: Theme, position: float) -> str:

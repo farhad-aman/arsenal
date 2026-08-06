@@ -6,7 +6,7 @@ from textual.widgets import Static
 from ..config import Category, Config
 from ..format import SPINNER, human_bytes, human_duration, human_speed, progress_bar, sparkline
 from ..routing import OTHER, resolve
-from ..theme import Theme, icon_for, ramp_color
+from ..theme import Theme, glyph, icon_for, ramp_color
 
 
 def escape(text: str) -> str:
@@ -129,14 +129,17 @@ def _gradient_bar(row: Row, theme: Theme, width: int) -> str:
 
 def _state_cell(row: Row, theme: Theme, frame: int) -> str:
     if row.status == "error":
-        return _paint(f"❌ {escape(row.error or 'failed')} — press r to retry", theme.danger, theme)
+        mark = glyph("❌", theme.icons)
+        return _paint(
+            f"{mark} {escape(row.error or 'failed')} — press r to retry", theme.danger, theme
+        )
     if row.status == "paused":
-        return _paint("⏸  paused", theme.warn, theme)
+        return _paint(f'{glyph("⏸", theme.icons)}  paused', theme.warn, theme)
     if row.status in ("waiting", "queued"):
         return _paint(f"{SPINNER[frame % len(SPINNER)]}  queued", theme.dim, theme)
     if row.status == "complete":
-        return _paint("✅ done", theme.ok, theme)
-    return _paint(f"🚀 {human_speed(row.speed)}", theme.accent, theme)
+        return _paint(f'{glyph("✅", theme.icons)} done', theme.ok, theme)
+    return _paint(f'{glyph("🚀", theme.icons)} {human_speed(row.speed)}', theme.accent, theme)
 
 
 def render_row(
@@ -150,7 +153,7 @@ def render_row(
     )
     label = escape(row.name) or "(resolving…)"
     if row.proxied:
-        label = f"{label} {'🌐' if theme.icons else '[via proxy]'}"
+        label = f'{label} {glyph("🌐", theme.icons)}'
 
     head = f"{marker} {icon}  {label:<44} {sizes:>20}"
 
@@ -162,14 +165,16 @@ def render_row(
     if "spark" in columns:
         parts.append(_paint(sparkline(row.history, 8), theme.dim, theme))
     if "eta" in columns:
-        parts.append(_paint(f"⏱ {human_duration(row.eta)}", theme.dim, theme))
+        parts.append(_paint(f'{glyph("⏱", theme.icons)} {human_duration(row.eta)}', theme.dim, theme))
     if "folder" in columns:
         parts.append(_paint(row.category.name.upper(), row.category.hue, theme))
     body = "  ".join(parts)
 
     lines = [head, body]
     if selected and expanded:
-        lines.append(f"{marker}     📂 {escape(str(row.path))} · {row.conns} conns")
+        lines.append(
+            f'{marker}     {glyph("📂", theme.icons)} {escape(str(row.path))} · {row.conns} conns'
+        )
     return lines
 
 
