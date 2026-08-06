@@ -65,6 +65,9 @@ class CompletedTable(Static):
         self.cursor = max(0, min(len(self.rows) - 1, self.cursor + delta))
         self.refresh_view()
 
+    def cursor_span(self) -> tuple[int, int]:
+        return (self.cursor, 1) if self.rows else (0, 0)
+
     def refresh_view(self) -> None:
         if not self.rows:
             from .searchbar import empty_note

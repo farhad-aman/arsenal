@@ -383,6 +383,7 @@ The suite covers behaviour; these are the things only an eye can check.
 - [ ] Emoji render in your terminal font and columns stay aligned
 - [ ] `theme = "mono"` keeps alignment with no emoji
 - [ ] `/` filters as you type and the count under the list is right
+- [ ] With more rows than fit, `↑`/`↓` move the selection and the view follows
 - [ ] `NO_COLOR=1 dl` emits no colour
 - [ ] Resize below 80, 66, and 50 columns — layout degrades, never scrolls sideways
 - [ ] macOS notification appears on completion

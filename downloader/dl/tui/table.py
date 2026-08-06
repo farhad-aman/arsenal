@@ -213,6 +213,9 @@ def render_row(
     return lines
 
 
+ROW_LINES = 3
+
+
 class DownloadTable(Static):
     def __init__(self, theme: Theme, **kwargs):
         super().__init__("", markup=True, **kwargs)
@@ -235,6 +238,17 @@ class DownloadTable(Static):
             return
         self.cursor = max(0, min(len(self.rows) - 1, self.cursor + delta))
         self.refresh_view()
+
+    def cursor_span(self) -> tuple[int, int]:
+        """Which lines of the rendered block the selected row occupies, so the
+        scroller can be told where to look."""
+        start = 0
+        for index, row in enumerate(self.rows):
+            height = ROW_LINES + (1 if index == self.cursor and self.expanded else 0)
+            if index == self.cursor:
+                return start, height
+            start += height
+        return 0, 0
 
     def set_rows(self, rows: list[Row]) -> None:
         previous = {r.gid: r.history for r in self.rows}

@@ -31,6 +31,122 @@ def names(app) -> list[str]:
     return [row.name for row in app.table.rows]
 
 
+def many_rows(count: int) -> list[dict]:
+    return [
+        {
+            "gid": f"g{i}",
+            "status": "active",
+            "totalLength": "1000",
+            "completedLength": "500",
+            "downloadSpeed": "100",
+            "connections": "8",
+            "files": [{"path": f"/tmp/file-{i:02d}.iso", "uris": [{"uri": "https://e.com/x"}]}],
+            "errorMessage": "",
+        }
+        for i in range(count)
+    ]
+
+
+class LongClient(FakeClient):
+    def __init__(self, count: int = 30):
+        super().__init__()
+        self.active = many_rows(count)
+
+
+async def test_down_moves_the_selection_when_the_list_overflows_the_screen(cfg):
+    """The body is a VerticalScroll. Focused, it eats the arrow keys and pans
+    the page instead of letting the dashboard move its cursor."""
+    app = DlApp(cfg, LongClient())
+    async with app.run_test(size=(100, 20)) as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert app.table.cursor == 0
+        await pilot.press("down")
+        await pilot.pause()
+        assert app.table.cursor == 1
+        assert app.table.selected_gid == "g1"
+
+
+async def test_up_moves_the_selection_back(cfg):
+    app = DlApp(cfg, LongClient())
+    async with app.run_test(size=(100, 20)) as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        for _ in range(4):
+            await pilot.press("down")
+        await pilot.pause()
+        assert app.table.cursor == 4
+        await pilot.press("up")
+        await pilot.pause()
+        assert app.table.cursor == 3
+
+
+async def test_the_view_follows_the_cursor_past_the_bottom_edge(cfg):
+    """Moving the cursor is useless if the row it lands on is off screen."""
+    app = DlApp(cfg, LongClient())
+    async with app.run_test(size=(100, 20)) as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        body = app.query_one("#body")
+        assert body.scroll_offset.y == 0
+        for _ in range(15):
+            await pilot.press("down")
+        await pilot.pause()
+        assert app.table.cursor == 15
+        assert body.scroll_offset.y > 0
+
+
+async def test_the_view_follows_the_cursor_back_to_the_top(cfg):
+    app = DlApp(cfg, LongClient())
+    async with app.run_test(size=(100, 20)) as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        body = app.query_one("#body")
+        for _ in range(15):
+            await pilot.press("down")
+        await pilot.pause()
+        assert body.scroll_offset.y > 0
+        for _ in range(15):
+            await pilot.press("up")
+        await pilot.pause()
+        assert app.table.cursor == 0
+        assert body.scroll_offset.y == 0
+
+
+async def test_the_completed_tab_moves_its_cursor_too(cfg, state):
+    log = state / "history.jsonl"
+    for i in range(40):
+        history.append(
+            {"name": f"done-{i:02d}.iso", "status": "ok", "bytes": 1, "ts": 1, "path": ""}, log
+        )
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test(size=(100, 20)) as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        await pilot.pause()
+        assert app.completed.cursor == 0
+        for _ in range(30):
+            await pilot.press("down")
+        await pilot.pause()
+        assert app.completed.cursor == 30
+        assert app.query_one("#body").scroll_offset.y > 0
+
+
+async def test_arrows_still_move_the_cursor_while_a_filter_is_on(cfg):
+    app = DlApp(cfg, LongClient())
+    async with app.run_test(size=(100, 20)) as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await type_query(pilot, "file-1")
+        await pilot.press("enter")
+        await pilot.pause()
+        await app.refresh_data()
+        assert len(app.table.rows) == 10
+        await pilot.press("down")
+        await pilot.pause()
+        assert app.table.cursor == 1
+
+
 async def test_slash_opens_the_box_and_focuses_it(cfg):
     app = DlApp(cfg, FakeClient())
     async with app.run_test() as pilot:

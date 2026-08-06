@@ -217,7 +217,9 @@ class DlApp(App):
 
     def compose(self) -> ComposeResult:
         yield self.status
-        with VerticalScroll(id="body"):
+        # A focusable scroller claims up and down for panning, and the arrow
+        # keys never reach the dashboard's own cursor. The wheel still works.
+        with VerticalScroll(id="body", can_focus=False):
             yield self.table
             yield self.completed
         yield self.hint
@@ -419,9 +421,26 @@ class DlApp(App):
 
     def action_cursor_down(self) -> None:
         self._active_widget().move(1)
+        self._scroll_to_cursor()
 
     def action_cursor_up(self) -> None:
         self._active_widget().move(-1)
+        self._scroll_to_cursor()
+
+    def _scroll_to_cursor(self) -> None:
+        """Keep the selected row on screen.
+
+        The rows are one rendered block inside a scroller, not separate
+        widgets, so nothing moves the viewport on its own.
+        """
+        body = self.query_one("#body", VerticalScroll)
+        start, height = self._active_widget().cursor_span()
+        top = body.scroll_offset.y
+        visible = body.size.height
+        if start < top:
+            body.scroll_to(y=start, animate=False)
+        elif start + height > top + visible:
+            body.scroll_to(y=start + height - visible, animate=False)
 
     def action_expand(self) -> None:
         self.table.expanded = not self.table.expanded
