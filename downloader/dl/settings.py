@@ -28,6 +28,7 @@ EDITABLE = LIST_SECTIONS | {
     "per_download",
     "cookies_from",
     "probe_timeout",
+    "newest",
     "on_complete",
     "hook_timeout",
 }
@@ -66,6 +67,7 @@ LIMITS = (
 YOUTUBE = (
     Field(("youtube", "cookies_from"), "Cookies from browser", "text", allow_empty=True),
     Field(("youtube", "probe_timeout"), "Probe timeout", "duration"),
+    Field(("youtube", "newest"), "Newest N of a collection", "int"),
 )
 
 HOOKS = (
@@ -92,6 +94,7 @@ ATTRIBUTE = {
     ("limits", "per_download"): lambda cfg: cfg.limits.per_download or "off",
     ("youtube", "cookies_from"): lambda cfg: cfg.cookies_from,
     ("youtube", "probe_timeout"): lambda cfg: f"{cfg.probe_timeout}s",
+    ("youtube", "newest"): lambda cfg: cfg.newest,
     ("hooks", "on_complete"): lambda cfg: cfg.on_complete,
     ("hooks", "timeout"): lambda cfg: f"{cfg.hook_timeout}s",
 }

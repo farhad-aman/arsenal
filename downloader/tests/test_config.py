@@ -215,3 +215,27 @@ def test_a_config_without_headers_still_loads(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text('[general]\ntheme = "mono"\n')
     assert config.load(path).headers == {}
+
+
+def test_the_default_collection_limit_is_a_hundred():
+    """How many of a playlist "newest only" takes."""
+    assert config.defaults().newest == 100
+
+
+def test_the_collection_limit_can_be_set(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text("[youtube]\nnewest = 250\n")
+    assert config.load(path).newest == 250
+
+
+def test_a_collection_limit_that_is_not_a_number_falls_back(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[youtube]\nnewest = "many"\n')
+    assert config.load(path).newest == 100
+
+
+def test_the_written_default_config_mentions_the_collection_limit(tmp_path):
+    path = tmp_path / "config.toml"
+    config.write_default(path)
+    assert "newest" in path.read_text()
+    assert config.load(path).newest == 100

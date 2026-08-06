@@ -47,6 +47,7 @@ class Limits:
 DEFAULT_PROXY = "http://127.0.0.1:2080"
 DEFAULT_COOKIES = "chrome"
 DEFAULT_PROBE_TIMEOUT = 180
+DEFAULT_NEWEST = 100
 DEFAULT_HOOK_TIMEOUT = 300
 
 
@@ -60,9 +61,18 @@ class Config:
     proxy_domains: tuple[str, ...] = ()
     cookies_from: str = DEFAULT_COOKIES
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
+    newest: int = DEFAULT_NEWEST
     headers: dict[str, dict[str, str]] = field(default_factory=dict)
     on_complete: str = ""
     hook_timeout: int = DEFAULT_HOOK_TIMEOUT
+
+
+def _positive(value, fallback: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return number if number > 0 else fallback
 
 
 def parse_duration(text: str) -> int:
@@ -183,6 +193,7 @@ def load(path: Path | None = None) -> Config:
                 str(d).lower() for d in raw.get("proxy", {}).get("domains", [])
             ),
             cookies_from=str(raw.get("youtube", {}).get("cookies_from", DEFAULT_COOKIES)),
+            newest=_positive(raw.get("youtube", {}).get("newest"), DEFAULT_NEWEST),
             probe_timeout=(
                 parse_duration(raw["youtube"]["probe_timeout"])
                 if "probe_timeout" in raw.get("youtube", {})
@@ -228,6 +239,9 @@ cookies_from = "chrome"
 # Over a proxy this ranges from seconds to minutes; giving up early costs the
 # title, the size and the check for a copy already on disk.
 probe_timeout = "3m"
+# How many a playlist or channel takes when you choose "newest only" rather
+# than all of it.
+newest = 100
 
 # Sent with every request to a matching host. Same host rule as [proxy.domains]:
 # a bare name covers subdomains, "*." matches subdomains only. Useful for hosts

@@ -132,11 +132,13 @@ async def test_every_job_shares_the_one_destination_and_quality(cfg, listing, sp
 
 
 async def test_newest_only_takes_the_front_of_the_list(cfg, monkeypatch, spawned):
+    from dl import config as config_module
+
     entries = [
         playlist.Entry(f"https://youtu.be/v{i}", f"Episode {i}") for i in range(1, 41)
     ]
     monkeypatch.setattr(ytadd.playlist, "expand", lambda *a, **k: entries)
-    app = DlApp(cfg, FakeClient())
+    app = DlApp(config_module.replace(cfg, newest=25), FakeClient())
     async with app.run_test() as pilot:
         await pilot.pause()
         await open_playlist(app, pilot)
@@ -150,7 +152,7 @@ async def test_newest_only_takes_the_front_of_the_list(cfg, monkeypatch, spawned
             await pilot.pause()
             if len(spawned) == 25:
                 break
-        assert len(spawned) == 25
+        assert len(spawned) == 25, "the configured limit, not a fixed 25"
         assert spawned[0]["title"] == "Episode 1"
 
 
@@ -241,3 +243,48 @@ async def test_a_big_playlist_starts_only_as_many_as_the_cap_allows(
     assert len(records) == 20, "every video is on disk"
     assert len(spawned) == 3, f"only the cap runs, got {len(spawned)}"
     assert ytqueue.running(state / "yt") == 3
+
+
+async def test_the_collection_limit_comes_from_the_config(cfg, monkeypatch, spawned):
+    """It was a fixed 25 with no way to ask for more."""
+    from dl import config as config_module
+
+    entries = [
+        playlist.Entry(f"https://youtu.be/v{i}", f"Episode {i}") for i in range(1, 300)
+    ]
+    monkeypatch.setattr(ytadd.playlist, "expand", lambda *a, **k: entries)
+    app = DlApp(config_module.replace(cfg, newest=150), FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await open_playlist(app, pilot)
+        assert app.screen.newest == 150
+        assert "150" in app.screen.summary() or app.screen.offers_newest
+
+
+async def test_a_collection_smaller_than_the_limit_offers_no_shortcut(cfg, listing, spawned):
+    """Five videos with a limit of a hundred: "newest 100" would mean nothing."""
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await open_playlist(app, pilot)
+        assert app.screen.count == 5
+        assert app.screen.offers_newest is False
+
+
+async def test_expanding_waits_as_long_as_a_probe_would(cfg, monkeypatch, spawned):
+    """A channel of thousands is one request, but a slow one. It used to give
+    up after a fixed two minutes with no way to wait longer."""
+    from dl import config as config_module
+
+    seen = {}
+
+    def record(url, proxy, cookies, limit=0, timeout=None):
+        seen["timeout"] = timeout
+        return [playlist.Entry("https://youtu.be/v1", "One")]
+
+    monkeypatch.setattr(ytadd.playlist, "expand", record)
+    app = DlApp(config_module.replace(cfg, probe_timeout=600), FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await open_playlist(app, pilot)
+    assert seen["timeout"] == 600

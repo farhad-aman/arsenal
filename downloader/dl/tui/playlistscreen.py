@@ -3,10 +3,9 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Static
 
+from ..config import DEFAULT_NEWEST as NEWEST
 from ..format import cells
 from .table import escape
-
-NEWEST = 25
 
 
 class PlaylistScreen(ModalScreen[int | None]):

@@ -245,6 +245,10 @@ A playlist or channel address expands into its videos: `dl` lists what is in
 there, says how many, and waits. Nothing is queued until you agree, because a
 channel can hold thousands.
 
+Anything larger than `youtube.newest` — a hundred by default — also offers to
+take just that many, newest first. Listing waits as long as `probe_timeout`,
+since a channel of thousands is one request but a slow one.
+
 Quality and destination are asked once for the whole collection, then one job
 is queued per video — each with its own progress, and its own `space`, `r` and
 `d`, so one failure does not take the rest down with it.
@@ -356,7 +360,8 @@ restart it, or make the change from the screen.
 | `proxy.url` | `http://127.0.0.1:2080` | where `-p` and `proxy.domains` send traffic |
 | `proxy.domains` | `[]` | hosts always downloaded through the proxy |
 | `youtube.cookies_from` | `"chrome"` | browser to borrow YouTube cookies from |
-| `youtube.probe_timeout` | `"3m"` | how long to wait for YouTube to describe a link |
+| `youtube.probe_timeout` | `"3m"` | how long to wait for YouTube to describe a link, or list a collection |
+| `youtube.newest` | `100` | how many a collection takes when you choose "newest only" |
 | `limits.per_download` | `"off"` | default cap per download, e.g. `"500K"` |
 | `limits.connections` | `16` | connections per server |
 | `limits.splits` | `16` | segments per file |

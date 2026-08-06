@@ -79,7 +79,14 @@ class YouTubeAdder:
         """
         try:
             entries = await asyncio.to_thread(
-                playlist.expand, url, self._proxy_for(url), self.cfg.cookies_from
+                playlist.expand,
+                url,
+                self._proxy_for(url),
+                self.cfg.cookies_from,
+                0,
+                # The same patience as a single video's probe: a channel of
+                # thousands is one request, but a slow one.
+                self.cfg.probe_timeout,
             )
         except playlist.ListingFailed as exc:
             self.failed = f"{url}: {exc}"
@@ -98,7 +105,10 @@ class YouTubeAdder:
             self._ask_options(0)
 
         self.host.push_screen(
-            PlaylistScreen(self.collection_title(url, entries), len(entries)), decided
+            PlaylistScreen(
+                self.collection_title(url, entries), len(entries), self.cfg.newest
+            ),
+            decided,
         )
 
     def collection_title(self, url: str, entries) -> str:

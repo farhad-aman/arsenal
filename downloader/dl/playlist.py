@@ -65,8 +65,13 @@ class ListingFailed(Exception):
     pass
 
 
-def expand(url: str, proxy: str, cookies_from: str, limit: int = 0, timeout: float = 120):
-    """The videos in a collection, in the order YouTube lists them."""
+def expand(url: str, proxy: str, cookies_from: str, limit: int = 0, timeout: float = 180):
+    """The videos in a collection, in the order YouTube lists them.
+
+    The timeout is the caller's: a channel of thousands is still one request,
+    but a slow one, and giving up on it early leaves nothing to show for the
+    wait.
+    """
     try:
         done = subprocess.run(
             list_command(url, proxy, cookies_from, limit),
