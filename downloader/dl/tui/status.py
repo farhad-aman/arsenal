@@ -37,15 +37,26 @@ def _graph(history: list[int], theme: Theme, width: int) -> str:
     )
 
 
-def _counters(stats: Stats, theme: Theme) -> str:
-    """Each counter keeps a fixed cell so a number ticking over does not shove
-    everything beside it sideways."""
-    items = [
+def _marks(stats: Stats, theme: Theme):
+    return (
         (glyph("⬇", theme.icons), stats.active, "active"),
         (glyph("⏳", theme.icons), stats.waiting, "queued"),
         (glyph("✅", theme.icons), stats.done, "done"),
-    ]
-    return "  ".join(pad(f"{mark} {count} {label}", COUNTER_CELL) for mark, count, label in items)
+    )
+
+
+def _counters(stats: Stats, theme: Theme) -> str:
+    """Each counter keeps a fixed cell so a number ticking over does not shove
+    everything beside it sideways."""
+    return "  ".join(
+        pad(f"{mark} {count} {label}", COUNTER_CELL)
+        for mark, count, label in _marks(stats, theme)
+    )
+
+
+def _short_counters(stats: Stats, theme: Theme) -> str:
+    """The same numbers without their words, for a bar with no room for prose."""
+    return "  ".join(f"{mark} {count}" for mark, count, _ in _marks(stats, theme))
 
 
 SPEED_CELL = 16
@@ -63,17 +74,18 @@ def render_status(
     order never displaces the key legend.
     """
     speed = f"{glyph('🚀', theme.icons)} {human_speed(stats.speed)}"
-    counts = _counters(stats, theme)
-    mark = f"{glyph('⇅', theme.icons)} {sort_label}   " if sort_label else ""
     tail = f"{glyph('⏱', theme.icons)} {human_duration(stats.elapsed)}"
+    badge = f"{glyph('⇅', theme.icons)} {sort_label}   " if sort_label else ""
 
-    # The gap after the badge is part of what it costs. Budget only the badge
-    # itself and the reading at the far end gets clipped.
-    base = SPEED_CELL + cells(counts) + TAIL_CELL + 6
-    if base + cells(mark) > width:
-        mark = ""
-    fixed = base + cells(mark)
-    graph_width = max(0, min(40, width - fixed))
+    counts, mark, tail, roomy = _fit(stats, theme, width, badge, tail, speed)
+
+    speed_cell = min(SPEED_CELL, max(cells(speed), width))
+    tail_cell = TAIL_CELL if tail else 0
+    fixed = speed_cell + cells(counts) + cells(mark) + tail_cell + (3 if counts else 0)
+    # Whatever is left over, but never at the cost of a word: the layout above
+    # was chosen without the graph in mind, so this only fills space nothing
+    # else wanted. With the counters gone there is nothing to annotate.
+    graph_width = max(0, min(40, width - fixed - 3)) if roomy else 0
     if graph_width < 8:
         graph_width = 0
 
@@ -83,14 +95,40 @@ def render_status(
         if graph_width
         else ""
     )
+    between = "   " if counts else ""
     if theme.mono:
-        plain = (sparkline(history, graph_width) if any(history) else " " * graph_width)
-        return f"{pad(speed, SPEED_CELL)}{plain}{gap}{counts}   {mark}{tail}"
+        plain = sparkline(history, graph_width) if any(history) else " " * graph_width
+        return f"{pad(speed, speed_cell)}{plain}{gap}{counts}{between}{mark}{tail}"
     return (
-        f"[{theme.accent}]{pad(speed, SPEED_CELL)}[/]{graph}{gap}"
-        f"[{theme.dim}]{counts}[/]   [{theme.accent}]{mark}[/]"
-        f"[{theme.dim}]{rpad(tail, TAIL_CELL)}[/]"
+        f"[{theme.accent}]{pad(speed, speed_cell)}[/]{graph}{gap}"
+        f"[{theme.dim}]{counts}[/]{between}[{theme.accent}]{mark}[/]"
+        f"[{theme.dim}]{rpad(tail, tail_cell)}[/]"
     )
+
+
+def _fit(stats: Stats, theme: Theme, width: int, badge: str, tail: str, speed: str):
+    """What still fits, given up in order of what can be spared.
+
+    The graph goes first, then the sort badge, then the counters' words, then
+    how long dl has been open, then the counters entirely. The speed is the
+    last thing standing: it is the reading the bar exists for.
+    """
+    full = _counters(stats, theme)
+    short = _short_counters(stats, theme)
+    room = width - min(SPEED_CELL, max(cells(speed), width))
+    for counts, keep_badge, keep_tail in (
+        (full, True, True),
+        (full, False, True),
+        (short, False, True),
+        (short, False, False),
+        ("", False, False),
+    ):
+        mark = badge if keep_badge else ""
+        end = tail if keep_tail else ""
+        cost = cells(counts) + cells(mark) + (TAIL_CELL if end else 0) + (3 if counts else 0)
+        if cost <= room:
+            return counts, mark, end, bool(counts)
+    return "", "", "", False
 
 
 class StatusBar(Static):
