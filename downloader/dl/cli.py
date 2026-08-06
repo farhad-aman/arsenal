@@ -7,6 +7,7 @@ from .config import Config, parse_rate
 from .destinations import ensure_writable
 from .format import human_bytes, human_speed
 from .routing import Resolution
+from .rpc import Aria2Error, Aria2Unreachable
 from .theme import glyph
 from .rpc import Aria2Error, Aria2Unreachable
 
@@ -146,8 +147,16 @@ def cmd_add(
     return (1 if failures else 0), gids
 
 
+# Of the stopped list, only failures. A removal lingers there for the life of
+# the daemon, and a finished download is in `dl history`, which outlives it.
+LISTED_WHEN_STOPPED = ("error",)
+
+
 def _rows(client) -> list[dict]:
-    return list(client.tell_active()) + list(client.tell_waiting()) + list(client.tell_stopped())
+    stopped = [
+        item for item in client.tell_stopped() if item.get("status") in LISTED_WHEN_STOPPED
+    ]
+    return list(client.tell_active()) + list(client.tell_waiting()) + stopped
 
 
 def _proxy_badge(client, gid: str, cfg: Config) -> str:
@@ -258,7 +267,20 @@ def cmd_resume(target: str, client) -> int:
 
 def cmd_rm(target: str, client) -> int:
     client.remove(target)
+    forget_result(client, target)
     return 0
+
+
+def forget_result(client, gid: str) -> None:
+    """Clear the stopped-list entry a removal leaves behind.
+
+    aria2 refuses when there is no result yet, which is not a failure: the
+    download is gone either way.
+    """
+    try:
+        client.remove_download_result(gid)
+    except (Aria2Error, Aria2Unreachable, AttributeError, TypeError):
+        pass
 
 
 def cmd_kill(client) -> int:

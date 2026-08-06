@@ -847,6 +847,7 @@ class DlApp(App):
             except (Aria2Error, Aria2Unreachable):
                 break
             if status in SETTLED:
+                cli.forget_result(self.client, gid)
                 break
             await asyncio.sleep(0.05)
         self._unlink(path)
@@ -893,6 +894,10 @@ class DlApp(App):
             if choice == "disk" and row.path.name:
                 self.run_worker(self._settle_then_unlink(row.gid, row.path))
                 self.notify(f"deleted {row.name}")
+            else:
+                # Deleting the file waits for aria2 to let go of it, and the
+                # result cannot be forgotten until then.
+                cli.forget_result(self.client, row.gid)
 
         self.push_screen(DeleteModal(row.name or row.gid, has_file), chosen)
 

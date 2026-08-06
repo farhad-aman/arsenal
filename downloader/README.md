@@ -72,6 +72,10 @@ Inside the preview: `space` pause/resume, `l` limit, `o` open, `f` reveal
 in Finder, `d` delete, `↑` `↓` move, `Ctrl-C` detach. Adding, reordering, and the
 Completed tab are dashboard-only — run `dl` for those.
 
+`dl ls` shows the live queue and anything that failed. Finished downloads are
+in `dl history`, which is a file on disk and outlives the daemon; a removed one
+is gone from both. The two never show the same download.
+
 `dl ls` prints fixed columns with no colour when piped, so `dl ls | grep paused`
 works.
 

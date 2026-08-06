@@ -78,6 +78,14 @@ class Aria2:
     def remove(self, gid: str) -> str:
         return self._call("aria2.remove", gid)
 
+    def remove_download_result(self, gid: str) -> str:
+        """Forget a stopped download.
+
+        remove() only moves it to the stopped list, where it stays for the
+        life of the daemon.
+        """
+        return self._call("aria2.removeDownloadResult", gid)
+
     def change_position(self, gid: str, pos: int, how: str) -> int:
         return self._call("aria2.changePosition", gid, pos, how)
 
