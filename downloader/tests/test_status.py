@@ -1,7 +1,12 @@
+import re
+
 import pytest
 
 from dl import theme
+from dl.format import cells
 from dl.tui.status import render_status, stats_from
+
+_MARKUP = re.compile(r"\[[^]]*\]")
 
 
 @pytest.fixture
@@ -58,6 +63,39 @@ def test_render_status_graph_shrinks_with_width(th):
 
 def test_render_status_handles_empty_history(th):
     assert render_status(stats_from(gstat(), 0), [], th, 100)
+
+
+def test_render_status_shows_the_sort_badge(th):
+    out = render_status(stats_from(gstat(), 261), [1, 2, 3], th, 100, "size ↓")
+    assert "size ↓" in out
+
+
+def test_render_status_without_a_sort_label_shows_no_badge(th):
+    out = render_status(stats_from(gstat(), 261), [1, 2, 3], th, 100)
+    assert "⇅" not in out
+
+
+def test_the_badge_does_not_push_the_elapsed_time_off_the_bar(th):
+    """The badge costs its own width plus the gap after it. Budgeting only the
+    first clips the reading at the far end."""
+    for label in ("queue", "progress ↓", "size ↓"):
+        out = render_status(stats_from(gstat(), 261), [1, 2, 3], th, 100, label)
+        assert "4m 21s" in out, label
+        assert cells(_MARKUP.sub("", out)) <= 100, label
+
+
+def test_the_badge_is_dropped_when_there_is_no_room_for_it(th):
+    """The counters already overflow a 60-column bar on their own. The badge
+    gives up its width rather than making that worse."""
+    out = render_status(stats_from(gstat(), 261), [1, 2, 3], th, 60, "progress ↓")
+    assert "progress" not in out
+    assert "4m 21s" in out
+
+
+def test_the_badge_survives_a_width_that_can_hold_it(th):
+    out = render_status(stats_from(gstat(), 261), [1, 2, 3], th, 120, "progress ↓")
+    assert "progress ↓" in out
+    assert cells(_MARKUP.sub("", out)) <= 120
 
 
 def test_render_status_has_no_global_limit_indicator(th):

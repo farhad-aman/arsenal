@@ -44,6 +44,14 @@ def names(app):
     return [row.name for row in app.table.rows]
 
 
+def rendered(app) -> str:
+    """What is actually on the screen, not what a widget believes it holds."""
+    return "\n".join(
+        "".join(segment.text for segment in strip)
+        for strip in app.screen._compositor.render_strips()
+    )
+
+
 async def test_the_list_starts_in_queue_order(cfg):
     app = DlApp(cfg, MixedClient())
     async with app.run_test() as pilot:
@@ -139,7 +147,7 @@ async def test_the_order_survives_a_refresh(cfg):
         assert names(app) == ["alpha.iso", "bravo.iso", "charlie.iso"]
 
 
-async def test_the_note_names_the_order(cfg):
+async def test_the_status_bar_names_the_order(cfg):
     app = DlApp(cfg, MixedClient())
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -147,25 +155,63 @@ async def test_the_note_names_the_order(cfg):
         await pilot.press("S")
         await pilot.press("S")
         await pilot.pause()
-        assert app.search_note.display is True
-        assert "size" in app.search_note.text
+        assert "size" in app.status.sort_label
 
 
-async def test_the_note_is_hidden_again_in_queue_order(cfg):
+async def test_the_status_bar_names_queue_order_too(cfg):
+    """A badge that appeared only once sorted would shift the bar under the
+    reader on a keypress that changed nothing else."""
+    app = DlApp(cfg, MixedClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert app.status.sort_label == "queue"
+
+
+async def test_the_badge_updates_without_waiting_for_the_next_poll(cfg):
     app = DlApp(cfg, MixedClient())
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.refresh_data()
         await pilot.press("S")
         await pilot.pause()
-        assert app.search_note.display is True
-        for _ in range(len(sort.FIELDS) - 1):
-            await pilot.press("S")
+        assert "name" in app.status.sort_label
+
+
+async def test_sorting_leaves_the_key_legend_alone(cfg):
+    """The badge used to live under the list, which pushed the legend off the
+    bottom of the screen."""
+    app = DlApp(cfg, MixedClient())
+    async with app.run_test(size=(96, 12)) as pilot:
         await pilot.pause()
-        assert app.search_note.display is False
+        await app.refresh_data()
+        before = rendered(app)
+        assert "s settings" in before
+        await pilot.press("S")
+        await pilot.press("S")
+        await pilot.pause()
+        after = rendered(app)
+        assert "s settings" in after, after
+        assert "size" in after
 
 
-async def test_the_note_carries_a_filter_and_an_order_together(cfg):
+async def test_the_legend_survives_a_filter_as_well(cfg):
+    app = DlApp(cfg, MixedClient())
+    async with app.run_test(size=(96, 12)) as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.press("slash")
+        await pilot.pause()
+        for ch in "iso":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause()
+        screen = rendered(app)
+        assert "s settings" in screen, screen
+        assert "esc clear" in screen
+
+
+async def test_the_note_still_carries_only_the_filter(cfg):
     app = DlApp(cfg, MixedClient())
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -179,7 +225,7 @@ async def test_the_note_carries_a_filter_and_an_order_together(cfg):
         await pilot.press("S")
         await pilot.pause()
         assert "iso" in app.search_note.text
-        assert "name" in app.search_note.text
+        assert "name" in app.status.sort_label
 
 
 async def test_sorting_applies_to_the_filtered_list(cfg):

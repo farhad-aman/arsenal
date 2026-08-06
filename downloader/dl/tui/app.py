@@ -5,7 +5,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
@@ -64,8 +64,11 @@ CSS = """
 Screen { layout: vertical; }
 StatusBar { height: 1; dock: top; padding: 0 1; }
 #body { height: 1fr; padding: 0 1; }
-#hint { dock: bottom; height: 1; padding: 0 1; color: $dl-dim; }
-#search-note { dock: bottom; height: 1; padding: 0 1; }
+/* One docked block, so a note appearing pushes the legend up rather than off
+   the bottom of the screen. */
+#footer { dock: bottom; height: auto; }
+#hint { height: 1; padding: 0 1; color: $dl-dim; }
+#search-note { height: 1; padding: 0 1; }
 #search-input { dock: bottom; height: 3; margin: 0 1; }
 
 AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen, DuplicateModal,
@@ -231,8 +234,9 @@ class DlApp(App):
         with VerticalScroll(id="body", can_focus=False):
             yield self.table
             yield self.completed
-        yield self.hint
-        yield self.search_note
+        with Vertical(id="footer"):
+            yield self.search_note
+            yield self.hint
 
     def _repaint_hint(self) -> None:
         pairs = DONE_KEYS if self.showing_completed else HINT_KEYS
@@ -358,18 +362,22 @@ class DlApp(App):
         self._repaint_search()
 
     def _repaint_search(self) -> None:
-        order = self._order()
         filtering = search.active(self.search_query)
-        sorting = sort.sorted_away(order)
-        self.search_note.display = filtering or sorting
-        if not (filtering or sorting):
+        self.search_note.display = filtering
+        if not filtering:
             return
-        query = self.search_query if filtering else ""
-        badge = sort.label(order, self.theme_data.icons) if sorting else ""
         if self.showing_completed:
-            self.search_note.show(query, len(self.completed.rows), None, badge)
+            self.search_note.show(self.search_query, len(self.completed.rows), None)
         else:
-            self.search_note.show(query, len(self.table.rows), self.search_total, badge)
+            self.search_note.show(self.search_query, len(self.table.rows), self.search_total)
+
+    def sort_badge(self) -> str:
+        """Always shown, whatever the order.
+
+        A badge that came and went would move the chrome under the reader on a
+        keypress that changed nothing but the order.
+        """
+        return sort.label(self._order(), self.theme_data.icons)
 
     def _order(self) -> sort.Order:
         return self.done_order if self.showing_completed else self.order
@@ -390,6 +398,7 @@ class DlApp(App):
             # From the unsorted rows, not what is on screen: re-sorting an
             # already-sorted list cannot recover queue order.
             self.table.set_rows(sort.apply_rows(self.rows_raw, order))
+        self.status.set_sort(self.sort_badge())
         self._repaint_search()
         self._scroll_to_cursor()
 
@@ -431,7 +440,7 @@ class DlApp(App):
         self.rows_raw = search.keep(rows, self.search_query, lambda row: row.name)
         self.table.set_rows(sort.apply_rows(self.rows_raw, self.order))
         elapsed = int(time.monotonic() - self.started)
-        self.status.update_stats(stats_from(stat, elapsed))
+        self.status.update_stats(stats_from(stat, elapsed), self.sort_badge())
         self._repaint_search()
         self._after_refresh(items)
 
@@ -613,6 +622,7 @@ class DlApp(App):
         self._repaint_hint()
         if self.showing_completed:
             self.completed.load(self.history_log, self.search_query, self.done_order)
+        self.status.set_sort(self.sort_badge())
         self._repaint_search()
 
     def action_add(self) -> None:

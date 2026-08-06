@@ -53,14 +53,26 @@ COUNTER_CELL = 12
 TAIL_CELL = 10
 
 
-def render_status(stats: Stats, history: list[int], theme: Theme, width: int) -> str:
+def render_status(
+    stats: Stats, history: list[int], theme: Theme, width: int, sort_label: str = ""
+) -> str:
     """Lay the bar out to a budget: the graph gives up its width first, since
-    the numbers beside it are the part worth reading."""
+    the numbers beside it are the part worth reading.
+
+    The sort badge lives here rather than under the list so that changing the
+    order never displaces the key legend.
+    """
     speed = f"{glyph('🚀', theme.icons)} {human_speed(stats.speed)}"
     counts = _counters(stats, theme)
+    mark = f"{glyph('⇅', theme.icons)} {sort_label}   " if sort_label else ""
     tail = f"{glyph('⏱', theme.icons)} {human_duration(stats.elapsed)}"
 
-    fixed = SPEED_CELL + cells(counts) + TAIL_CELL + 6
+    # The gap after the badge is part of what it costs. Budget only the badge
+    # itself and the reading at the far end gets clipped.
+    base = SPEED_CELL + cells(counts) + TAIL_CELL + 6
+    if base + cells(mark) > width:
+        mark = ""
+    fixed = base + cells(mark)
     graph_width = max(0, min(40, width - fixed))
     if graph_width < 8:
         graph_width = 0
@@ -73,10 +85,11 @@ def render_status(stats: Stats, history: list[int], theme: Theme, width: int) ->
     )
     if theme.mono:
         plain = (sparkline(history, graph_width) if any(history) else " " * graph_width)
-        return f"{pad(speed, SPEED_CELL)}{plain}{gap}{counts}   {tail}"
+        return f"{pad(speed, SPEED_CELL)}{plain}{gap}{counts}   {mark}{tail}"
     return (
         f"[{theme.accent}]{pad(speed, SPEED_CELL)}[/]{graph}{gap}"
-        f"[{theme.dim}]{counts}[/]   [{theme.dim}]{rpad(tail, TAIL_CELL)}[/]"
+        f"[{theme.dim}]{counts}[/]   [{theme.accent}]{mark}[/]"
+        f"[{theme.dim}]{rpad(tail, TAIL_CELL)}[/]"
     )
 
 
@@ -85,7 +98,28 @@ class StatusBar(Static):
         super().__init__("", markup=True, **kwargs)
         self.theme_data = theme
         self.history: list[int] = []
+        self.sort_label = ""
+        self.stats: Stats | None = None
 
-    def update_stats(self, stats: Stats) -> None:
+    def update_stats(self, stats: Stats, sort_label: str = "") -> None:
         self.history = (self.history + [stats.speed])[-40:]
-        self.update(render_status(stats, self.history, self.theme_data, self.size.width or 100))
+        self.stats = stats
+        self.sort_label = sort_label
+        self._paint()
+
+    def set_sort(self, sort_label: str) -> None:
+        """The bar redraws twice a second; a keypress should not wait for it."""
+        self.sort_label = sort_label
+        if self.stats is not None:
+            self._paint()
+
+    def _paint(self) -> None:
+        self.update(
+            render_status(
+                self.stats,
+                self.history,
+                self.theme_data,
+                self.size.width or 100,
+                self.sort_label,
+            )
+        )
