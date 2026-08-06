@@ -51,6 +51,10 @@ def add_options(
 
 
 def _unlink(path: Path) -> None:
+    # Path("") is PosixPath(".") and truthy, so a download aria2 has not named
+    # yet arrives here looking like a real path and with_name() raises on it.
+    if not path.name:
+        return
     for target in (path, path.with_name(path.name + ".aria2")):
         try:
             target.unlink()
@@ -65,6 +69,8 @@ def evict(client, target: Path, timeout: float = 5.0) -> str:
     aria2 rewrites the control file while winding a download down, so the
     unlink has to wait for the removal to settle or the .aria2 comes back.
     """
+    if not target.name:
+        return ""
     in_flight = list(client.tell_active()) + list(client.tell_waiting())
     victim = next((row for row in in_flight if duplicates.path_of(row) == target), None)
     gid = victim.get("gid", "") if victim else ""

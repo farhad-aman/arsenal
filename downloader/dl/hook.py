@@ -52,6 +52,8 @@ def build_record(status: dict, mode: str, cfg: Config, proxied: bool = False) ->
 def drop_control_file(path: Path) -> bool:
     """aria2 leaves <file>.aria2 behind on completion in some configurations,
     and relocating the download would strand it in the old directory."""
+    if not path.name:
+        return False
     control = path.with_name(path.name + ".aria2")
     try:
         control.unlink()

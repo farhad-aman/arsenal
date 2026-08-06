@@ -1297,3 +1297,70 @@ async def test_s_opens_the_settings_menu(cfg):
         await pilot.press("s")
         await pilot.pause()
         assert type(app.screen).__name__ == "SettingsMenuScreen"
+
+
+async def test_deleting_a_download_that_has_no_filename_yet_does_not_crash(cfg):
+    """aria2 reports files=[] until it has resolved one, which row_from_status
+    turns into Path("") — and that is PosixPath(".") and truthy, so it used to
+    sail past every guard and blow up in with_name()."""
+    client = FakeClient()
+    client.active = [
+        {
+            "gid": "g1",
+            "status": "active",
+            "totalLength": "0",
+            "completedLength": "0",
+            "downloadSpeed": "0",
+            "connections": "0",
+            "files": [],
+            "errorMessage": "",
+        }
+    ]
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        assert app.table.rows[0].path.name == ""
+        await pilot.press("d")
+        await pilot.pause()
+        # Nothing on disk to delete, so that option is not offered at all.
+        assert "disk" not in app.screen.body if hasattr(app.screen, "body") else True
+        assert app.screen.has_file is False
+        await pilot.press("l")
+        await pilot.pause()
+        for _ in range(10):
+            await pilot.pause()
+        assert app.is_running is True
+    assert client.removed == ["g1"]
+
+
+async def test_modal_chrome_follows_the_chosen_theme(cfg):
+    """get_css_variables() runs inside App.__init__, before theme_data is set,
+    so the stylesheet cached the fallback theme's colours and every modal came
+    up aurora teal no matter what the dashboard was."""
+    from dl import config as config_module
+    from dl import theme as theme_module
+
+    ember = config_module.replace(
+        cfg, general=config_module.replace(cfg.general, theme="ember")
+    )
+    app = DlApp(ember, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        wanted = theme_module.THEMES["ember"].accent
+        assert app.stylesheet._variables["dl-accent"] == wanted
+        assert wanted != theme_module.THEMES["aurora"].accent
+
+
+async def test_changing_the_theme_repaints_the_chrome(cfg):
+    from dl import config as config_module
+    from dl import theme as theme_module
+
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.reload_config(
+            config_module.replace(cfg, general=config_module.replace(cfg.general, theme="dusk"))
+        )
+        await pilot.pause()
+        assert app.stylesheet._variables["dl-accent"] == theme_module.THEMES["dusk"].accent

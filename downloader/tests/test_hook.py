@@ -406,3 +406,10 @@ def test_a_hook_that_works_stays_quiet(tmp_path):
     state = tmp_path / "state"
     assert hook.after_complete(cfg, {"name": "a.iso", "path": "/tmp/a.iso"}, state) == ""
     assert not (state / "hook.log").exists()
+
+
+def test_dropping_a_control_file_for_a_nameless_path_is_false():
+    from pathlib import Path
+
+    assert hook.drop_control_file(Path("")) is False
+    assert hook.drop_control_file(Path(".")) is False

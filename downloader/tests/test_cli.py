@@ -671,3 +671,19 @@ def test_a_header_value_is_never_printed(sandbox_cfg, capsys):
     cfg = headers_cfg(sandbox_cfg, {"e.com": {"Cookie": "session=SUPERSECRET"}})
     cli.cmd_add(["https://e.com/a.iso"], cfg, client, None)
     assert "SUPERSECRET" not in capsys.readouterr().out
+
+
+def test_unlinking_a_nameless_path_is_a_no_op(tmp_path):
+    """Path("") is PosixPath(".") and is truthy, so an aria2 row whose file is
+    not named yet reaches here and with_name() raises on it."""
+    from pathlib import Path
+
+    cli._unlink(Path(""))
+    cli._unlink(Path("."))
+
+
+def test_evict_survives_a_target_with_no_name(sandbox_cfg):
+    from pathlib import Path
+
+    client = FakeClient()
+    assert cli.evict(client, Path("")) == ""

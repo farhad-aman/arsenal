@@ -219,6 +219,10 @@ class DlApp(App):
         self._repaint_hint()
 
     def on_mount(self) -> None:
+        # Textual reads the CSS variables inside App.__init__, before the line
+        # that sets theme_data has run, so the stylesheet starts out holding
+        # the fallback theme. Re-resolve now that the real one exists.
+        self.refresh_css()
         self._repaint_hint()
         ytjob.sweep(STATE_DIR / "yt", self.history_log)
         self.completed.display = False
@@ -579,6 +583,8 @@ class DlApp(App):
             self._delete_active()
 
     def _unlink(self, path) -> None:
+        if not path.name:
+            return
         for target in (path, path.with_name(path.name + ".aria2")):
             try:
                 target.unlink()
@@ -601,7 +607,7 @@ class DlApp(App):
 
     def _delete_youtube(self, row) -> None:
         job_file = STATE_DIR / "yt" / f"{row.gid}.json"
-        has_file = bool(row.path) and row.path.is_file()
+        has_file = bool(row.path.name) and row.path.is_file()
 
         def chosen(choice: str | None) -> None:
             if choice is None:
@@ -629,7 +635,7 @@ class DlApp(App):
         if is_youtube_row(row):
             self._delete_youtube(row)
             return
-        has_file = bool(row.path) and row.path.exists()
+        has_file = bool(row.path.name) and row.path.exists()
 
         def chosen(choice: str | None) -> None:
             if choice is None:
@@ -638,7 +644,7 @@ class DlApp(App):
                 self.client.remove(row.gid)
             except (Aria2Error, Aria2Unreachable):
                 pass
-            if choice == "disk" and row.path:
+            if choice == "disk" and row.path.name:
                 self.run_worker(self._settle_then_unlink(row.gid, row.path))
                 self.notify(f"deleted {row.name}")
 
