@@ -86,6 +86,12 @@ def _catch_youtube(url: str, cfg: Config) -> bool:
     from . import ytjob, ytrun
     from .tui import ytflow
 
+    if not ytjob.ffmpeg_available():
+        # Otherwise the streams come down and the last step fails, leaving a
+        # .webm behind and a caught link that looks like it worked.
+        print(f"  {_g('⚠', cfg)}  skipped  {url}  — {ytjob.FFMPEG_ADVICE}")
+        return False
+
     category = cfg.categories.get("video") or routing.OTHER
     job = ytjob.new_job(
         url,

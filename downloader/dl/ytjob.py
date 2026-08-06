@@ -180,6 +180,23 @@ def burn_command(video: Path, subtitles: Path) -> tuple[list[str], Path]:
     )
 
 
+FFMPEG_ADVICE = "yt-dlp needs ffmpeg for this — brew install ffmpeg"
+
+
+def ffmpeg_available() -> bool:
+    return shutil.which("ffmpeg") is not None
+
+
+def needs_ffmpeg(choices: Choices) -> bool:
+    """Whether this download has to be put together after it is fetched.
+
+    Which is nearly always: YouTube serves video and audio as separate
+    streams above 360p, and combining them is ffmpeg's job. Audio-only and
+    subtitles need it too.
+    """
+    return choices.audio_only or choices.subs != "off" or choices.video != "none"
+
+
 def burn_in_available() -> bool:
     """The subtitles filter needs an ffmpeg built with libass, which plenty of
     builds are not."""

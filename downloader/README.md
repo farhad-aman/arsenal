@@ -480,6 +480,13 @@ for inspection.
 **Broken config** — `dl` prints the TOML error with its line number and runs on
 defaults rather than refusing to start. A typo never blocks a download.
 
+**YouTube downloads refuse to start** — they need ffmpeg. YouTube serves video
+and audio as separate streams above 360p, and combining them is ffmpeg's job,
+as are audio-only downloads and subtitles. `dl` checks before fetching
+anything: without the check yt-dlp downloads the streams and fails at the last
+step, leaving a `.webm` where the file you asked for should be.
+`brew install ffmpeg`.
+
 **Hard subtitles fail on macOS** — homebrew-core's `ffmpeg` is built without
 libass, so it has no `subtitles` filter and `brew reinstall ffmpeg` produces the
 same binary. `brew install homebrew-ffmpeg/ffmpeg/ffmpeg` builds one that can.

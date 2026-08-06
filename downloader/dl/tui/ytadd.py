@@ -57,6 +57,13 @@ class YouTubeAdder:
 
     def start(self, finished=None) -> None:
         self._finished = finished
+        if not ytjob.ffmpeg_available():
+            # Before anything is fetched. Without it yt-dlp downloads the
+            # streams and fails at the last step, leaving a .webm where the
+            # file you asked for should be.
+            self.failed = ytjob.FFMPEG_ADVICE
+            self._done()
+            return
         collections = [url for url in self.urls if playlist.is_collection(url)]
         if collections and not self.shared:
             self.urls = [url for url in self.urls if url not in collections]
