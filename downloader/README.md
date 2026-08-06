@@ -101,8 +101,14 @@ from before and stops it once you have seen what it is.
 If the port is genuinely held by something else, `dl` says so instead of
 quietly starting somewhere new.
 
-`DL_STATE_DIR` and `DL_PORT` exist so the test suite can run its own daemon
-without touching yours. They are testing hooks, not a way to run two copies.
+Nothing in the environment can move any of this. The state directory, the
+config file and the port are fixed in the code, because each of them was
+otherwise a way to start a second copy — and two copies acting on downloads
+neither can see is the inconsistency all of this exists to prevent. The daemon
+tells its own hook where to write rather than exporting it.
+
+To run a genuinely separate copy, give it a separate machine: a container or a
+VM. That is a boundary dl does not have to know about.
 
 `dl ls` prints fixed columns with no colour when piped, so `dl ls | grep paused`
 works.

@@ -8,6 +8,7 @@ from pathlib import Path
 from . import config, daemon, history, routing
 from .config import STATE_DIR, Config
 from .rpc import Aria2
+from .rpc import Aria2
 
 
 def _first_file(status: dict) -> dict:
@@ -192,19 +193,43 @@ def _log_failure(state: Path) -> None:
     _log(state, traceback.format_exc())
 
 
+def _take(args: list[str], flag: str) -> str:
+    """Pull `--flag value` out of the argument list, if it is there.
+
+    aria2 appends its own gid, path and file count after whatever the shim
+    passed, so the flags cannot simply be positional.
+    """
+    if flag not in args:
+        return ""
+    at = args.index(flag)
+    value = args[at + 1] if at + 1 < len(args) else ""
+    del args[at : at + 2]
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
-    state = STATE_DIR
     if not args:
         return 0
     if args[0] == "idle":
         return _run_idle(int(args[1]), int(args[2]), Path(args[3]))
 
+    # The daemon tells its hook where to write, because nothing in the
+    # environment can move dl's state any more.
+    where = _take(args, "--state")
+    config_file = _take(args, "--config")
+    state = Path(where) if where else STATE_DIR
+
     try:
         mode = args[0]
         gid = args[1] if len(args) > 1 else ""
-        cfg = config.load()
-        client = daemon.ensure_running(cfg, state)
+        cfg = config.load(Path(config_file)) if config_file else config.load()
+        # Talk to the daemon that called us, which is the one this state
+        # directory records. ensure_running would go to the fixed port and
+        # could start a daemon — from inside a hook, of one that is running.
+        client = Aria2(
+            "127.0.0.1", daemon.read_port(state), daemon.read_secret(state)
+        )
         status = client.tell_status(gid)
         try:
             options = client.get_option(gid)

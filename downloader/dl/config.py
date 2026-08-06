@@ -5,17 +5,14 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "dl"
-STATE_DIR = (
-    Path(os.environ["DL_STATE_DIR"])
-    if os.environ.get("DL_STATE_DIR")
-    else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dl"
-)
-CONFIG_FILE = (
-    Path(os.environ["DL_CONFIG_FILE"])
-    if os.environ.get("DL_CONFIG_FILE")
-    else CONFIG_DIR / "config.toml"
-)
+# Fixed, with nothing in the environment able to move them. dl is one app: one
+# daemon, one dashboard, one queue, one history. An environment variable that
+# relocated any of these would be a way to run a second copy, and two copies
+# acting on downloads neither can see is the inconsistency this prevents.
+# Isolating a whole run belongs to a container, not to dl.
+CONFIG_DIR = Path.home() / ".config" / "dl"
+STATE_DIR = Path.home() / ".local" / "state" / "dl"
+CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 _DURATION = re.compile(r"^(\d+)\s*([smh]?)$")
 _MULTIPLIER = {"": 1, "s": 1, "m": 60, "h": 3600}

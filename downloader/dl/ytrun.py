@@ -173,17 +173,20 @@ def finalize(state: Path, job: dict, code: int, cfg) -> dict:
         "status": "ok",
         "proxy": bool(job.get("proxy")),
     }
-    history.append(record, STATE_DIR / "history.jsonl")
+    # The job file is <state>/yt/<id>.json, so the supervisor works out where
+    # to write from what it was handed rather than from a global.
+    root = state.parent
+    history.append(record, root / "history.jsonl")
     if cfg.general.notify:
         notify("Download complete", landed.name if landed else job["url"])
-    after_complete(cfg, record, STATE_DIR)
+    after_complete(cfg, record, root)
     return job
 
 
 def main(argv: list[str]) -> int:
     if not argv:
         return 2
-    state = STATE_DIR / "yt"
+    state = Path(argv[0]).resolve().parent
     job = ytjob.read(Path(argv[0]))
     cfg = load()
     # Before the probe, which can hold this job at "queued" for minutes: until

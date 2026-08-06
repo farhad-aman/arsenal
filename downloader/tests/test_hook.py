@@ -179,7 +179,7 @@ def test_main_cleans_control_files_at_both_old_and_new_locations(tmp_path, cfg, 
     client.tell_status = lambda gid: status(
         files=[{"path": str(downloaded), "uris": [{"uri": "https://e.com/download.iso"}]}]
     )
-    monkeypatch.setattr(hook.daemon, "ensure_running", lambda *a, **k: client)
+    monkeypatch.setattr(hook, "Aria2", lambda *a, **k: client)
 
     assert hook.main(["complete", "g1", "1", str(downloaded)]) == 0
     assert (target_dir / "movie.mkv").exists()
@@ -223,7 +223,7 @@ def test_main_appends_history_and_survives_rpc_failure(tmp_path, cfg, monkeypatc
     def boom(*_a, **_k):
         raise RuntimeError("no daemon")
 
-    monkeypatch.setattr(hook.daemon, "ensure_running", boom)
+    monkeypatch.setattr(hook, "Aria2", boom)
     assert hook.main(["complete", "g1", "1", str(tmp_path / "a.iso")]) == 0
     assert (tmp_path / "hook.log").exists()
 
@@ -236,7 +236,7 @@ def test_main_writes_history_row_on_success(tmp_path, cfg, monkeypatch):
 
     client = FakeClient()
     client.tell_status = lambda gid: status()
-    monkeypatch.setattr(hook.daemon, "ensure_running", lambda *a, **k: client)
+    monkeypatch.setattr(hook, "Aria2", lambda *a, **k: client)
 
     assert hook.main(["complete", "g1", "1", "/tmp/a.iso"]) == 0
     rows = [json.loads(line) for line in (tmp_path / "history.jsonl").read_text().splitlines()]

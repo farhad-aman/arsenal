@@ -57,13 +57,11 @@ def env(tmp_path, monkeypatch):
         f'[categories.iso]\ndir = "{downloads / "ISO"}"\next = ["iso"]\n'
         f'icon = "💿"\nhue = "#4aa3ff"\n'
     )
-    # Its own port as well as its own state directory. dl runs on one fixed
-    # port now, so without this a test run and the real daemon fight over it —
-    # and the loser is whichever one the developer was using.
+    # Patched in this process, not exported. dl reads no environment variable
+    # for any of this any more: one app, one place for its things. A test that
+    # wants its own daemon says so here, and the daemon passes what it was
+    # told down to its own hook.
     port = _free_port()
-    monkeypatch.setenv("DL_STATE_DIR", str(state))
-    monkeypatch.setenv("DL_CONFIG_FILE", str(config_file))
-    monkeypatch.setenv("DL_PORT", str(port))
     monkeypatch.setattr(config, "STATE_DIR", state)
     monkeypatch.setattr(config, "CONFIG_FILE", config_file)
     monkeypatch.setattr(daemon, "STATE_DIR", state)

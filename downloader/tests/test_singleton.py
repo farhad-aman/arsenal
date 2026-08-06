@@ -6,6 +6,7 @@ nothing knew they were there.
 """
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +17,46 @@ def test_there_is_one_port_not_a_range():
     """A range is what let a second daemon quietly exist beside the first."""
     assert isinstance(daemon.PORT, int)
     assert not hasattr(daemon, "PORT_RANGE")
+
+
+def test_nothing_in_the_environment_can_move_the_app(monkeypatch):
+    """dl is one app in one place. Every variable here once relocated its
+    state, its config or its port, and each was a way to run a second copy.
+
+    Isolating a whole run is a container's job, not a variable's.
+    """
+    import importlib
+
+    for name, value in (
+        ("DL_STATE_DIR", "/tmp/elsewhere"),
+        ("DL_CONFIG_FILE", "/tmp/other.toml"),
+        ("DL_PORT", "6899"),
+        ("XDG_STATE_HOME", "/tmp/xdg-state"),
+        ("XDG_CONFIG_HOME", "/tmp/xdg-config"),
+    ):
+        monkeypatch.setenv(name, value)
+
+    fresh_config = importlib.reload(importlib.import_module("dl.config"))
+    fresh_daemon = importlib.reload(importlib.import_module("dl.daemon"))
+    try:
+        home = Path.home()
+        assert fresh_config.STATE_DIR == home / ".local" / "state" / "dl"
+        assert fresh_config.CONFIG_FILE == home / ".config" / "dl" / "config.toml"
+        assert fresh_daemon.PORT == 6810
+    finally:
+        monkeypatch.undo()
+        importlib.reload(importlib.import_module("dl.config"))
+        importlib.reload(importlib.import_module("dl.daemon"))
+
+
+def test_the_shim_carries_the_paths_rather_than_exporting_them(tmp_path):
+    """The hook used to be told where to write through the environment. With
+    nothing readable there, it has to be told directly."""
+    complete, _ = daemon.write_hook_shims(tmp_path, "/opt/venv/bin/python")
+    body = complete.read_text()
+    assert "DL_STATE_DIR" not in body
+    assert "DL_CONFIG_FILE" not in body
+    assert f"--state {tmp_path}" in body
 
 
 def test_the_pid_file_round_trips(tmp_path):

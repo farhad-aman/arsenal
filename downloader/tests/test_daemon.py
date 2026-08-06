@@ -46,21 +46,26 @@ def test_hook_shims_are_executable_and_exec_the_venv(tmp_path):
         assert stat.S_IMODE(path.stat().st_mode) == 0o755
 
 
-def test_hook_shims_pin_the_state_dir_so_a_fresh_hook_process_agrees(tmp_path):
+def test_hook_shims_pass_the_state_dir_as_an_argument(tmp_path):
+    """Not through the environment: nothing there can move dl's state, so the
+    daemon has to tell its own hook where it keeps things."""
     complete, _ = daemon.write_hook_shims(tmp_path, "/opt/venv/bin/python")
-    assert f"DL_STATE_DIR={tmp_path}" in complete.read_text()
+    body = complete.read_text()
+    assert f"--state {tmp_path}" in body
+    assert "DL_STATE_DIR" not in body
 
 
-def test_hook_shims_pin_the_config_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("DL_CONFIG_FILE", str(tmp_path / "custom.toml"))
+def test_hook_shims_pass_the_config_file_as_an_argument(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "custom.toml")
     complete, _ = daemon.write_hook_shims(tmp_path, "/opt/venv/bin/python")
-    assert f"DL_CONFIG_FILE={tmp_path / 'custom.toml'}" in complete.read_text()
+    body = complete.read_text()
+    assert f"--config {tmp_path / 'custom.toml'}" in body
+    assert "DL_CONFIG_FILE" not in body
 
 
-def test_hook_shims_fall_back_to_the_real_config_file(tmp_path, monkeypatch):
-    monkeypatch.delenv("DL_CONFIG_FILE", raising=False)
+def test_hook_shims_use_the_real_config_file_by_default(tmp_path):
     complete, _ = daemon.write_hook_shims(tmp_path, "/opt/venv/bin/python")
-    assert f"DL_CONFIG_FILE={config.CONFIG_FILE}" in complete.read_text()
+    assert f"--config {config.CONFIG_FILE}" in complete.read_text()
 
 
 def test_hook_shims_are_rewritten_when_python_moves(tmp_path):

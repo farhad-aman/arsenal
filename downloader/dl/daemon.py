@@ -12,15 +12,18 @@ from . import config as config_module
 from .config import STATE_DIR, Config
 from .rpc import Aria2, Aria2Error, Aria2Unreachable
 
-# One port, not a range. Roaming to the next free port when this one was busy
-# is how a second daemon came to exist beside the first, holding downloads
-# nothing could reach and nothing knew about. DL_PORT exists so a test run can
-# have its own daemon without fighting the real one for the port.
-PORT = int(os.environ.get("DL_PORT") or 6810)
+# One port, fixed. Roaming to the next free port when this one was busy is how
+# a second daemon came to exist beside the first, holding downloads nothing
+# could reach and nothing knew about.
+PORT = 6810
 LEGACY_PORTS = range(6810, 6820)
+# The paths travel as arguments rather than in the environment: nothing in the
+# environment can move dl's state, so there is nothing there for the shim to
+# set. A test daemon's hook still writes to the test's own directory because
+# that is what the daemon was told to use.
 _SHIM = (
     "#!/bin/sh\n"
-    'exec env DL_STATE_DIR={state} DL_CONFIG_FILE={config} {python} -m dl.hook {mode} "$@"\n'
+    'exec {python} -m dl.hook {mode} --state {state} --config {config} "$@"\n'
 )
 
 
@@ -35,9 +38,9 @@ def spawn_env() -> dict:
 
 
 def _config_path() -> Path:
-    """Resolved at call time so the hook subprocess inherits the same config the
-    parent used, rather than whatever the real home happens to hold."""
-    return Path(os.environ.get("DL_CONFIG_FILE", str(config_module.CONFIG_FILE)))
+    """Read at call time, not import time, so the shim carries the config the
+    parent is actually using."""
+    return Path(config_module.CONFIG_FILE)
 
 
 class Aria2Missing(Exception):
