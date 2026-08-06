@@ -9,7 +9,7 @@ from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from .. import cli, config, duplicates, history, routing, search, theme, ytjob
+from .. import cli, config, duplicates, history, routing, search, sort, theme, ytjob
 from ..theme import glyph
 from ..config import CONFIG_FILE, STATE_DIR, Config
 from ..format import cells, human_bytes
@@ -132,6 +132,7 @@ HINT_KEYS = (
     ("f", "finder"),
     ("s", "settings"),
     ("/", "search"),
+    ("S R", "sort"),
     ("tab", "done"),
     ("q", "quit"),
 )
@@ -141,6 +142,7 @@ DONE_KEYS = (
     ("d", "delete"),
     ("↑↓", "move"),
     ("/", "search"),
+    ("S R", "sort"),
     ("tab", "active"),
     ("q", "quit"),
 )
@@ -168,6 +170,8 @@ class DlApp(App):
         ("s", "settings", "settings"),
         ("slash", "search", "search"),
         ("escape", "clear_search", "clear search"),
+        ("S", "cycle_sort", "sort"),
+        ("R", "flip_sort", "reverse sort"),
         Binding("tab", "toggle_tab", "completed", priority=True),
         ("enter", "expand", "expand"),
         ("down", "cursor_down", "down"),
@@ -193,6 +197,11 @@ class DlApp(App):
         self.hint = Static(render_hint(HINT_KEYS, self.theme_data), id="hint", markup=True)
         self.search_query = ""
         self.search_total = 0
+        # One per tab: speed and progress mean nothing for a finished download,
+        # so the two lists do not share a field list.
+        self.order = sort.DEFAULT
+        self.done_order = sort.DONE_DEFAULT
+        self.rows_raw: list = []
         self.search_note = SearchNote(self.theme_data, id=NOTE_ID)
         self.search_input: SearchInput | None = None
 
@@ -349,18 +358,44 @@ class DlApp(App):
         self._repaint_search()
 
     def _repaint_search(self) -> None:
-        on = search.active(self.search_query)
-        self.search_note.display = on
-        if not on:
+        order = self._order()
+        filtering = search.active(self.search_query)
+        sorting = sort.sorted_away(order)
+        self.search_note.display = filtering or sorting
+        if not (filtering or sorting):
             return
+        query = self.search_query if filtering else ""
+        badge = sort.label(order, self.theme_data.icons) if sorting else ""
         if self.showing_completed:
-            self.search_note.show(self.search_query, len(self.completed.rows), None)
+            self.search_note.show(query, len(self.completed.rows), None, badge)
         else:
-            self.search_note.show(self.search_query, len(self.table.rows), self.search_total)
+            self.search_note.show(query, len(self.table.rows), self.search_total, badge)
+
+    def _order(self) -> sort.Order:
+        return self.done_order if self.showing_completed else self.order
+
+    def action_cycle_sort(self) -> None:
+        fields = sort.DONE_FIELDS if self.showing_completed else sort.FIELDS
+        self._set_order(sort.next_field(self._order(), fields))
+
+    def action_flip_sort(self) -> None:
+        self._set_order(sort.flipped(self._order()))
+
+    def _set_order(self, order: sort.Order) -> None:
+        if self.showing_completed:
+            self.done_order = order
+            self._reload_completed()
+        else:
+            self.order = order
+            # From the unsorted rows, not what is on screen: re-sorting an
+            # already-sorted list cannot recover queue order.
+            self.table.set_rows(sort.apply_rows(self.rows_raw, order))
+        self._repaint_search()
+        self._scroll_to_cursor()
 
     def _reload_completed(self) -> None:
         if self.showing_completed:
-            self.completed.load(self.history_log, self.search_query)
+            self.completed.load(self.history_log, self.search_query, self.done_order)
 
     def _filter_items(self, items: list[dict]) -> list[dict]:
         return items
@@ -393,7 +428,8 @@ class DlApp(App):
             self.table.placeholder = empty_note(self.search_query, self.theme_data)
         elif self.splash_when_empty and not self.showing_completed:
             self.table.placeholder = splash(self.theme_data)
-        self.table.set_rows(search.keep(rows, self.search_query, lambda row: row.name))
+        self.rows_raw = search.keep(rows, self.search_query, lambda row: row.name)
+        self.table.set_rows(sort.apply_rows(self.rows_raw, self.order))
         elapsed = int(time.monotonic() - self.started)
         self.status.update_stats(stats_from(stat, elapsed))
         self._repaint_search()
@@ -506,6 +542,14 @@ class DlApp(App):
         if is_youtube_row(row):
             self.notify("YouTube downloads start at once — there is no queue to move in")
             return
+        if sort.sorted_away(self.order):
+            # "Down" has no meaning when the list is ordered by size: the row
+            # would move in the queue and land somewhere unrelated on screen.
+            self.notify(
+                f"sorted by {self.order.field} — press S back to queue order to move rows",
+                severity="warning",
+            )
+            return
         self.client.change_position(row.gid, offset, "POS_CUR")
 
     def action_retry(self) -> None:
@@ -568,7 +612,7 @@ class DlApp(App):
         self.hint_text = HINT_DONE if self.showing_completed else HINT
         self._repaint_hint()
         if self.showing_completed:
-            self.completed.load(self.history_log, self.search_query)
+            self.completed.load(self.history_log, self.search_query, self.done_order)
         self._repaint_search()
 
     def action_add(self) -> None:

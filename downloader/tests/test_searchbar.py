@@ -45,6 +45,27 @@ def test_summary_of_no_matches_still_reports_the_total():
     assert "0 of 47" in summary("nothing", 0, 47, AURORA)
 
 
+def test_summary_of_a_sort_alone_carries_no_search_half():
+    line = summary("", 0, None, AURORA, sort_label="size ↓")
+    assert "size ↓" in line
+    assert "esc clear" not in line
+
+
+def test_summary_carries_a_filter_and_an_order_together():
+    line = summary("ubuntu", 2, 47, AURORA, sort_label="size ↓")
+    assert "ubuntu" in line
+    assert "2 of 47" in line
+    assert "size ↓" in line
+
+
+def test_summary_of_neither_is_empty():
+    assert summary("", 0, None, AURORA) == ""
+
+
+def test_summary_of_a_sort_has_no_markup_under_mono():
+    assert "[#" not in summary("", 0, None, MONO, sort_label="size v")
+
+
 def test_empty_note_names_the_query():
     assert "ubuntu" in empty_note("ubuntu", AURORA)
 

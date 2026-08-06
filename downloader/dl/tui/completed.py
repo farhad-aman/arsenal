@@ -51,11 +51,12 @@ class CompletedTable(Static):
             return None
         return self.rows[min(self.cursor, len(self.rows) - 1)]
 
-    def load(self, log: Path, query: str = "") -> None:
-        from .. import history
+    def load(self, log: Path, query: str = "", order=None) -> None:
+        from .. import history, sort
 
         self.search_query = query
-        self.rows = history.find(log, query, MAX_ROWS)[::-1]
+        newest_first = history.find(log, query, MAX_ROWS)[::-1]
+        self.rows = sort.apply_records(newest_first, order or sort.DONE_DEFAULT)
         self.cursor = min(self.cursor, max(len(self.rows) - 1, 0))
         self.refresh_view()
 

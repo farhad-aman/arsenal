@@ -8,11 +8,19 @@ INPUT_ID = "search-input"
 NOTE_ID = "search-note"
 
 
-def summary(query: str, shown: int, total: int | None, theme: Theme) -> str:
-    mark = glyph("🔍", theme.icons)
-    count = f"{shown} of {total}" if total is not None else f"{shown} found"
-    line = f'{mark} "{escape(query)}"   {count}   esc clear'
-    if theme.mono:
+def summary(
+    query: str, shown: int, total: int | None, theme: Theme, sort_label: str = ""
+) -> str:
+    """The line under the list. Either half stands alone when it is the only
+    one active, so an unfiltered but sorted list still says so."""
+    parts = []
+    if query:
+        count = f"{shown} of {total}" if total is not None else f"{shown} found"
+        parts.append(f'{glyph("🔍", theme.icons)} "{escape(query)}"   {count}   esc clear')
+    if sort_label:
+        parts.append(f'{glyph("⇅", theme.icons)} {sort_label}')
+    line = "    ".join(parts)
+    if theme.mono or not line:
         return line
     return f"[{theme.accent}]{line}[/]"
 
@@ -44,6 +52,8 @@ class SearchNote(Static):
         self.theme_data = theme
         self.text = ""
 
-    def show(self, query: str, shown: int, total: int | None) -> None:
-        self.text = summary(query, shown, total, self.theme_data)
+    def show(
+        self, query: str, shown: int, total: int | None, sort_label: str = ""
+    ) -> None:
+        self.text = summary(query, shown, total, self.theme_data, sort_label)
         self.update(self.text)

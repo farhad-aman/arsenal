@@ -168,6 +168,7 @@ downloads queued later from anywhere. `-p` is the only thing that decides.
 | `p` / `u` | pause all / resume all | | `d` | delete: from list, or disk too |
 | `s` | settings | | `tab` | Active ⇄ Completed |
 | `/` | search by name | | `enter` | expand row detail |
+| `S` | cycle sort order | | `R` | reverse it |
 | `↑` / `↓` | move cursor | | `q` | quit — downloads keep running |
 
 Speed limits apply to one download at a time — there is no global throttle, and
@@ -197,6 +198,25 @@ Persian or accented name would never match itself.
 On the Completed tab the search reads the whole of `history.jsonl`, not the last
 200 records the tab shows — a search that stopped at the cutoff would quietly
 miss older downloads.
+
+## Sort
+
+`S` steps through the orders, `R` reverses the one you are in. Active sorts by
+queue, name, size, speed or progress; Completed by recent, name or size — speed
+and progress mean nothing for a finished download. Each tab keeps its own.
+
+Each order starts in the direction worth seeing first: names A→Z, but sizes and
+speeds largest first, so `S` alone is usually enough.
+
+Sorting is stable, so queue order breaks ties, and it applies to whatever the
+filter has left. The bar under the list names the order, alongside the filter
+when both are on.
+
+`J`/`K` reorder the aria2 queue, which only means something in queue order — in
+any other they refuse and say so rather than moving a row somewhere unrelated.
+
+aria2 reports no size for a download it has not started, so sorting a mostly
+queued list by size groups those at one end.
 
 ## Settings
 
@@ -384,6 +404,7 @@ The suite covers behaviour; these are the things only an eye can check.
 - [ ] `theme = "mono"` keeps alignment with no emoji
 - [ ] `/` filters as you type and the count under the list is right
 - [ ] With more rows than fit, `↑`/`↓` move the selection and the view follows
+- [ ] `S` reorders the list visibly and the bar underneath names the order
 - [ ] `NO_COLOR=1 dl` emits no colour
 - [ ] Resize below 80, 66, and 50 columns — layout degrades, never scrolls sideways
 - [ ] macOS notification appears on completion

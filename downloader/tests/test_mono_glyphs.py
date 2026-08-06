@@ -130,6 +130,18 @@ def test_history_has_no_wide_glyphs(mono_cfg, tmp_path, capsys):
     assert not wide(out), out
 
 
+def test_the_note_under_the_list_has_no_wide_glyphs(mono_cfg):
+    from dl import sort
+    from dl.tui.searchbar import summary
+
+    th = theme.select(mono_cfg)
+    for field in sort.FIELDS + sort.DONE_FIELDS:
+        for reverse in (False, True):
+            badge = sort.label(sort.Order(field, reverse), th.icons)
+            line = summary("ubuntu", 2, 47, th, badge)
+            assert not wide(line), line
+
+
 def test_the_completed_tab_has_no_wide_glyphs(mono_cfg):
     th = theme.select(mono_cfg)
     for state in ("ok", "error"):
