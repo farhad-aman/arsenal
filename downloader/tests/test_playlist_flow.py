@@ -35,7 +35,7 @@ def listing(monkeypatch):
 @pytest.fixture
 def spawned(monkeypatch):
     jobs = []
-    monkeypatch.setattr(app_module.ytflow, "spawn", lambda job, state=None: jobs.append(job))
+    monkeypatch.setattr(app_module.ytflow, "spawn", lambda job, state=None, cap=0: jobs.append(job))
     return jobs
 
 
@@ -200,3 +200,44 @@ async def test_a_watch_url_inside_a_playlist_is_not_expanded(cfg, listing, spawn
         await pilot.pause()
         assert type(app.screen).__name__ == "YouTubeOptionsScreen"
         assert app.youtube_adder.shared is False
+
+
+async def test_a_big_playlist_starts_only_as_many_as_the_cap_allows(
+    cfg, monkeypatch, state
+):
+    """The point of the cap: accepting a collection used to start every video
+    at the same moment, one supervisor process each."""
+    from dl import config as config_module
+    from dl import ytqueue
+
+    entries = [
+        playlist.Entry(f"https://youtu.be/v{i}", f"Episode {i}") for i in range(1, 21)
+    ]
+    monkeypatch.setattr(ytadd.playlist, "expand", lambda *a, **k: entries)
+    spawned = []
+    monkeypatch.setattr(ytqueue, "spawn", lambda job, st: spawned.append(job["id"]))
+
+    capped = config_module.replace(
+        cfg, general=config_module.replace(cfg.general, max_concurrent=3)
+    )
+    app = DlApp(capped, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await open_playlist(app, pilot)
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("enter")
+        for _ in range(40):
+            await pilot.pause()
+            if len(app.table.rows) or spawned:
+                break
+        await pilot.pause()
+
+    from dl import ytjob
+
+    records = ytjob.list_jobs(state / "yt")
+    assert len(records) == 20, "every video is on disk"
+    assert len(spawned) == 3, f"only the cap runs, got {len(spawned)}"
+    assert ytqueue.running(state / "yt") == 3

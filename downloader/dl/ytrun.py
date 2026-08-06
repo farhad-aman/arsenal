@@ -6,7 +6,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-from . import history, ytjob
+from . import history, ytjob, ytqueue
 from .config import STATE_DIR, load
 from .hook import after_complete, notify
 
@@ -189,6 +189,24 @@ def main(argv: list[str]) -> int:
     state = Path(argv[0]).resolve().parent
     job = ytjob.read(Path(argv[0]))
     cfg = load()
+    try:
+        return _run(state, job, cfg)
+    finally:
+        # However this ended, including a crash: a slot never given back is
+        # one fewer download for as long as dl runs.
+        hand_over(state, job["id"], cfg.general.max_concurrent)
+
+
+def hand_over(state: Path, job_id: str, cap: int) -> None:
+    """Give the slot back and start whatever was waiting for it."""
+    ytqueue.release(state, job_id)
+    try:
+        ytqueue.start_next(state.parent, cap)
+    except OSError:
+        pass
+
+
+def _run(state: Path, job: dict, cfg) -> int:
     # Before the probe, which can hold this job at "queued" for minutes: until
     # there is a pid to check, a dead job is indistinguishable from a slow one.
     _update(state, job, supervisor=os.getpid())

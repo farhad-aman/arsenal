@@ -257,9 +257,13 @@ in turn, which is minutes of waiting before anything downloads.
 Collection videos skip the per-video duplicate check for the same reason. A
 file already on disk is left alone by yt-dlp rather than asked about.
 
-Nothing throttles YouTube jobs: `max_concurrent` governs aria2's queue, and
-yt-dlp downloads all start at once. Take a large collection in parts if that
-matters.
+`max_concurrent` holds these back too, so accepting a long collection starts
+that many and leaves the rest queued. Each one, as it finishes, starts the next
+— there is no scheduler process, and nothing waits idle. A playlist queued from
+the command line keeps working through itself after you close the terminal.
+
+`r` and `space` ignore the cap: asking for one download back is an instruction
+about that download, not a request to join the queue.
 
 ## Search
 
@@ -330,7 +334,7 @@ restart it, or make the change from the screen.
 | Key | Default | Meaning |
 |---|---|---|
 | `general.default_dir` | `~/Downloads` | fallback when nothing matches |
-| `general.max_concurrent` | `3` | parallel downloads |
+| `general.max_concurrent` | `3` | parallel downloads, aria2 and YouTube alike |
 | `general.idle_timeout` | `"10m"` | daemon self-shutdown after the queue empties |
 | `general.theme` | `"aurora"` | `aurora`, `ember`, `matrix`, `dusk`, `mono` |
 | `general.notify` | `true` | macOS banner on completion |

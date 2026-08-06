@@ -5,7 +5,7 @@ from pathlib import Path
 from textual.app import App
 from textual.widgets import Static
 
-from .. import instance, ytjob, ytrun
+from .. import instance, ytjob, ytqueue, ytrun
 from ..config import STATE_DIR, Config
 from ..format import human_bytes
 from ..theme import glyph, select
@@ -19,16 +19,18 @@ def jobs_dir(state: Path = None) -> Path:
     return (state or STATE_DIR) / JOB_DIR
 
 
-def spawn(job: dict, state: Path = None) -> None:
-    """Detach the supervisor so closing the shell never stops the download."""
-    target = ytjob.save(jobs_dir(state), job)
-    subprocess.Popen(
-        [sys.executable, "-m", "dl.ytrun", str(target)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+def spawn(job: dict, state: Path = None, cap: int = 0) -> bool:
+    """Start this job, or leave it queued behind the ones already running.
+
+    Returns whether it started. A cap of 0 means start it regardless, which is
+    what a retry or a resume wants: you asked for that one, now.
+    """
+    where = state or STATE_DIR
+    if cap:
+        return ytqueue.launch(job, where, cap)
+    ytqueue.hold_slot(where / "yt", job["id"])
+    ytqueue.spawn(job, where)
+    return True
 
 
 def resume(job: dict, state: Path = None) -> None:

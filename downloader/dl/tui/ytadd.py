@@ -246,6 +246,8 @@ class YouTubeAdder:
         )
 
     def _queue(self, index: int, job: dict) -> None:
-        self._spawn(job, self.state)
+        # A collection is the reason this cap exists: accepting one used to
+        # start every video at the same moment.
+        self._spawn(job, self.state, self.cfg.general.max_concurrent if self.shared else 0)
         self.queued.append(job)
         self._ask_options(index + 1)

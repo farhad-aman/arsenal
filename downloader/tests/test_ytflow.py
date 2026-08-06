@@ -13,10 +13,10 @@ def cfg(sandbox_cfg):
 def app_with(cfg, monkeypatch, probe, tmp_path):
     """The chain lives in YouTubeAdder now; the app is one of its two hosts."""
     spawned = []
-    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
+    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None, cap=0: spawned.append(job))
     monkeypatch.setattr("dl.ytrun.probe", probe)
     app = YouTubeSetupApp(cfg, ["https://youtu.be/abc"])
-    app.adder._spawn = lambda job, state=None: spawned.append(job)
+    app.adder._spawn = lambda job, state=None, cap=0: spawned.append(job)
     return app, spawned
 
 
