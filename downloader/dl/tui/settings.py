@@ -9,6 +9,7 @@ from textual.widgets import Input, Static
 
 from .. import config as config_module
 from .. import settings, theme as theme_module, tomlio
+from ..format import pad
 from ..config import Config
 
 HINT = "↑↓ field   ←→ change   ⏎ edit   ^S save   esc cancel"
@@ -90,7 +91,7 @@ class FormScreen(IconMixin, ModalScreen[dict]):
             marker = "▌" if index == self.field else " "
             shown = settings.render(self.values[entry.path])
             wrap = f"‹ {shown} ›" if entry.kind in CYCLED else shown
-            rows.append(f"{marker} {entry.label:<24} {wrap}")
+            rows.append(f"{marker} {pad(entry.label, 24)} {wrap}")
         self.body = "\n".join(rows)
         self.query_one("#settings-list", Static).update(self.body)
         self.query_one("#settings-error", Static).update(self.error)
@@ -200,6 +201,15 @@ SECTIONS = (
     ("Hooks", settings.HOOKS),
 )
 LIST_ROWS = ("Proxy", "Headers", "Categories")
+SECTION_ICONS = {
+    "General": "⚙️",
+    "Limits": "🚦",
+    "YouTube": "🎬",
+    "Hooks": "🪝",
+    "Proxy": "🌐",
+    "Headers": "🏷️",
+    "Categories": "🗂️",
+}
 
 
 class SettingsMenuScreen(IconMixin, ModalScreen[None]):
@@ -253,9 +263,10 @@ class SettingsMenuScreen(IconMixin, ModalScreen[None]):
             rows = []
             for index, name in enumerate(self.rows):
                 marker = "▌" if index == self.cursor else " "
-                arrow = "  ›" if name in LIST_ROWS else ""
-                rows.append(f"{marker} {name}{arrow}")
-            self.body = "\n".join(rows)
+                icon = pad(self._g(SECTION_ICONS.get(name, "•")), 2)
+                arrow = " ›" if name in LIST_ROWS else ""
+                rows.append(f"{marker} {icon} {pad(name, 14)}{arrow}")
+            self.body = "\n".join(rows) + "\n"
         self.query_one("#settings-list", Static).update(self.body)
 
     def _move(self, delta: int) -> None:
@@ -512,7 +523,7 @@ class HeadersScreen(IconMixin, ModalScreen[dict]):
             rows.append("  (no header rules)")
         for index, (host, key, value) in enumerate(self.rules):
             marker = "▌" if index == self.cursor else " "
-            rows.append(f"{marker} {host:<26} {key:<16} {value}")
+            rows.append(f"{marker} {pad(host, 26)} {pad(key, 16)} {value}")
         self.body = "\n".join(rows)
         self.query_one("#settings-list", Static).update(self.body)
         self.query_one("#settings-error", Static).update(self.error)
@@ -653,7 +664,7 @@ class CategoriesScreen(IconMixin, ModalScreen[dict]):
             marker = "▌" if index == self.cursor else " "
             entry = self.entries[name]
             shown = entry['icon'] if self._icons else name[:2].upper().ljust(2)
-            rows.append(f"{marker} {shown} {name:<12} {entry['dir']}")
+            rows.append(f"{marker} {pad(shown, 2)} {pad(name, 12)} {entry['dir']}")
         self.body = "\n".join(rows)
         self.query_one("#settings-list", Static).update(self.body)
         self.query_one("#settings-error", Static).update(self.error)

@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 from textual.widgets import Static
 
-from ..format import human_duration, human_speed, sparkline
-from ..theme import Theme, ramp_color
+from ..format import cells, human_duration, human_speed, pad, rpad, sparkline
+from ..theme import Theme, glyph, ramp_color
 
 
 @dataclass(frozen=True)
@@ -37,16 +37,46 @@ def _graph(history: list[int], theme: Theme, width: int) -> str:
     )
 
 
+def _counters(stats: Stats, theme: Theme) -> str:
+    """Each counter keeps a fixed cell so a number ticking over does not shove
+    everything beside it sideways."""
+    items = [
+        (glyph("⬇", theme.icons), stats.active, "active"),
+        (glyph("⏳", theme.icons), stats.waiting, "queued"),
+        (glyph("✅", theme.icons), stats.done, "done"),
+    ]
+    return "  ".join(pad(f"{mark} {count} {label}", COUNTER_CELL) for mark, count, label in items)
+
+
+SPEED_CELL = 16
+COUNTER_CELL = 12
+TAIL_CELL = 10
+
+
 def render_status(stats: Stats, history: list[int], theme: Theme, width: int) -> str:
-    graph_width = 40 if width >= 90 else (20 if width >= 66 else 10)
-    speed = human_speed(stats.speed)
-    counts = f"↓{stats.active}  ⏳{stats.waiting}  ✅{stats.done}"
-    tail = f"⏱ {human_duration(stats.elapsed)}"
+    """Lay the bar out to a budget: the graph gives up its width first, since
+    the numbers beside it are the part worth reading."""
+    speed = f"{glyph('🚀', theme.icons)} {human_speed(stats.speed)}"
+    counts = _counters(stats, theme)
+    tail = f"{glyph('⏱', theme.icons)} {human_duration(stats.elapsed)}"
+
+    fixed = SPEED_CELL + cells(counts) + TAIL_CELL + 6
+    graph_width = max(0, min(40, width - fixed))
+    if graph_width < 8:
+        graph_width = 0
+
+    gap = " " * (3 if graph_width else 0)
+    graph = (
+        (_graph(history, theme, graph_width) if any(history) else " " * graph_width)
+        if graph_width
+        else ""
+    )
     if theme.mono:
-        return f"{speed}   {sparkline(history, graph_width)}   {counts}   {tail}"
+        plain = (sparkline(history, graph_width) if any(history) else " " * graph_width)
+        return f"{pad(speed, SPEED_CELL)}{plain}{gap}{counts}   {tail}"
     return (
-        f"[{theme.accent}]🚀 {speed}[/]   {_graph(history, theme, graph_width)}   "
-        f"[{theme.dim}]{counts}[/]   [{theme.dim}]{tail}[/]"
+        f"[{theme.accent}]{pad(speed, SPEED_CELL)}[/]{graph}{gap}"
+        f"[{theme.dim}]{counts}[/]   [{theme.dim}]{rpad(tail, TAIL_CELL)}[/]"
     )
 
 

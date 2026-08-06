@@ -1,12 +1,27 @@
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from textual.widgets import Static
 
 from ..config import Category, Config
-from ..format import SPINNER, human_bytes, human_duration, human_speed, progress_bar, sparkline
+from ..format import (
+    SPINNER,
+    cells,
+    fit,
+    human_bytes,
+    human_duration,
+    human_speed,
+    pad,
+    progress_bar,
+    rpad,
+    sparkline,
+)
 from ..routing import OTHER, resolve
 from ..theme import Theme, glyph, icon_for, ramp_color
+
+
+_MARKUP = re.compile(r"\[[^]]*\]")
 
 
 def escape(text: str) -> str:
@@ -99,6 +114,14 @@ def row_from_job(job: dict, cfg: Config) -> Row:
     )
 
 
+ICON_CELL = 2
+NAME_CELL = 44
+SIZE_CELL = 20
+STATE_CELL = 15
+SPARK_CELL = 8
+ETA_CELL = 11
+
+
 def columns_for_width(width: int) -> set[str]:
     columns = set()
     if width >= 80:
@@ -116,6 +139,11 @@ def bar_width_for(width: int) -> int:
 
 def _paint(text: str, color: str, theme: Theme) -> str:
     return text if theme.mono else f"[{color}]{text}[/]"
+
+
+def _cell(painted: str, width: int) -> str:
+    """Pad a already-marked-up string to a column, measuring only what is drawn."""
+    return painted + " " * max(width - cells(_MARKUP.sub("", painted)), 0)
 
 
 def _gradient_bar(row: Row, theme: Theme, width: int) -> str:
@@ -147,25 +175,32 @@ def render_row(
 ) -> list[str]:
     columns = columns_for_width(width)
     marker = _paint("▌", row.category.hue, theme) if selected else " "
-    icon = icon_for(row.category, theme)
+    icon = pad(icon_for(row.category, theme), ICON_CELL)
     sizes = (
         f"{human_bytes(row.done)} / {human_bytes(row.total)}" if row.total else human_bytes(row.done)
     )
-    label = escape(row.name) or "(resolving…)"
+    name = row.name or "(resolving…)"
     if row.proxied:
-        label = f'{label} {glyph("🌐", theme.icons)}'
+        name = f'{name} {glyph("🌐", theme.icons)}'
+    # Padded on display width, not codepoints: one emoji or fullwidth
+    # character in a name would otherwise pull every later column left.
+    label = escape(fit(name, NAME_CELL))
 
-    head = f"{marker} {icon}  {label:<44} {sizes:>20}"
+    head = f"{marker} {icon} {label} {rpad(sizes, SIZE_CELL)}"
 
+    # Every cell keeps its column so the eye can run straight down a stack of
+    # rows: "done" and "8.1 MB/s" are different lengths, and left unpadded they
+    # shove the sparkline and the ETA around on every line.
     parts = [
         f"{marker}     {_gradient_bar(row, theme, bar_width_for(width))}",
         f"{row.pct:>4.0f}%",
-        _state_cell(row, theme, frame),
+        _cell(_state_cell(row, theme, frame), STATE_CELL),
     ]
     if "spark" in columns:
-        parts.append(_paint(sparkline(row.history, 8), theme.dim, theme))
+        parts.append(_cell(_paint(sparkline(row.history, 8), theme.dim, theme), SPARK_CELL))
     if "eta" in columns:
-        parts.append(_paint(f'{glyph("⏱", theme.icons)} {human_duration(row.eta)}', theme.dim, theme))
+        eta = _paint(f'{glyph("⏱", theme.icons)} {human_duration(row.eta)}', theme.dim, theme)
+        parts.append(_cell(eta, ETA_CELL))
     if "folder" in columns:
         parts.append(_paint(row.category.name.upper(), row.category.hue, theme))
     body = "  ".join(parts)

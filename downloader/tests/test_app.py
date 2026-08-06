@@ -468,7 +468,7 @@ async def test_a_youtube_job_shows_even_with_no_aria2_downloads(cfg, tmp_path, m
         await pilot.pause()
         await app.refresh_data()
         assert [r.gid for r in app.table.rows] == [job["id"]]
-        assert "d o w n l o a d e r" not in app.table.text
+        assert "Nothing downloading yet" not in app.table.text
 
 
 async def test_the_splash_still_shows_when_nothing_at_all_is_running(cfg, tmp_path, monkeypatch):
@@ -482,7 +482,8 @@ async def test_the_splash_still_shows_when_nothing_at_all_is_running(cfg, tmp_pa
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.refresh_data()
-        assert "d o w n l o a d e r" in app.table.text
+        assert "Nothing downloading yet" in app.table.text
+        assert "add a download" in app.table.text
 
 
 async def test_retry_resends_the_original_url_not_the_local_path(cfg):
@@ -964,7 +965,7 @@ async def test_hint_line_changes_with_the_tab(cfg, tmp_path, monkeypatch):
         await pilot.press("tab")
         assert "tab active" in app.hint_text
         await pilot.press("tab")
-        assert "pause/resume" in app.hint_text
+        assert "space pause" in app.hint_text
 
 
 async def test_filter_items_is_identity_by_default(cfg):

@@ -233,7 +233,7 @@ async def test_preview_never_renders_the_splash(cfg):
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.splash_when_empty is False
-        assert "d o w n l o a d e r" not in app.table.text
+        assert "Nothing downloading yet" not in app.table.text
 
 
 async def test_preview_collects_error_results(cfg):

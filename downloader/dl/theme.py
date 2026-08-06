@@ -51,6 +51,20 @@ THEMES: dict[str, Theme] = {
         mono=False,
         icons=True,
     ),
+    "dusk": Theme(
+        name="dusk",
+        accent="#7dd3fc",
+        danger="#fca5a5",
+        ok="#86efac",
+        warn="#fcd34d",
+        dim="#64748b",
+        # The bar travels cool to warm as it fills: starting, moving, nearly
+        # there, arrived. The counters reuse the same colours, so one glance
+        # reads the same way everywhere.
+        ramp=("#4c5b8a", "#7dd3fc", "#86efac", "#d9f99d"),
+        mono=False,
+        icons=True,
+    ),
     "mono": Theme(
         name="mono",
         accent="#ffffff",
@@ -94,6 +108,12 @@ GLYPHS = {
     "🚀": ">>",
     "⏱": "~",
     "📂": "@",
+    "⚙️": "*",
+    "🚦": "!",
+    "🪝": "^",
+    "🏷️": "#",
+    "🗂️": "=",
+    "⬇": "v",
 }
 
 

@@ -8,8 +8,14 @@ def cfg():
     return config.defaults()
 
 
-def test_all_four_themes_exist():
-    assert set(theme.THEMES) == {"aurora", "ember", "matrix", "mono"}
+def test_every_theme_is_present():
+    assert set(theme.THEMES) == {"aurora", "ember", "matrix", "dusk", "mono"}
+
+
+def test_mono_is_the_only_theme_without_colour_or_icons():
+    for name, t in theme.THEMES.items():
+        assert t.mono is (name == "mono"), name
+        assert t.icons is (name != "mono"), name
 
 
 def test_every_theme_has_a_non_empty_ramp():

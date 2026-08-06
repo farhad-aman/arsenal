@@ -10,8 +10,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Static
 
 from .. import cli, config, duplicates, history, routing, theme, ytjob
+from ..theme import glyph
 from ..config import CONFIG_FILE, STATE_DIR, Config
-from ..format import human_bytes
+from ..format import cells, human_bytes
 from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import CompletedTable, record_path
 from . import ytflow
@@ -19,45 +20,127 @@ from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal
 from .status import StatusBar, stats_from
 from .table import DownloadTable, is_youtube_row, row_from_job, row_from_status
 
-SPLASH = """\
-                    ██████╗ ██╗
-                    ██╔══██╗██║        d o w n l o a d e r
-                    ██║  ██║██║        ─────────────────────
-                    ██████╔╝███████╗   ⚡ powered by aria2
-                    ╚═════╝ ╚══════╝
-                         ▼ ▼ ▼
-"""
+EMPTY_KEYS = (("a", "add a download"), ("s", "settings"), ("q", "quit"))
+
+
+def splash(theme_data) -> str:
+    mark = glyph("⬇", theme_data.icons)
+    lines = [
+        "",
+        f"  [{theme_data.accent}]{mark}  dl[/]  [{theme_data.dim}]· download manager[/]",
+        "",
+        f"  [{theme_data.dim}]Nothing downloading yet.[/]",
+        "",
+    ]
+    lines += [
+        f"  [{theme_data.accent}]{key}[/]  [{theme_data.dim}]{label}[/]"
+        for key, label in EMPTY_KEYS
+    ]
+    return "\n".join(lines)
+
+
+def hint_pairs_for(pairs, width: int):
+    """Drop from the right until it fits. The order the keys are declared in is
+    the order worth keeping, so a narrow terminal loses `quit` before `add`."""
+    kept = list(pairs)
+    while kept and cells("  " + "   ".join(f"{k} {v}" for k, v in kept)) > width:
+        kept.pop()
+    return kept
+
+
+def render_hint(pairs, theme_data, width: int = 200) -> str:
+    """Keys carry the accent, labels stay quiet — the bar is a legend, not a
+    sentence, and every pair keeps the same gap."""
+    kept = hint_pairs_for(pairs, width)
+    if theme_data.mono:
+        return "  " + "   ".join(f"{key} {label}" for key, label in kept)
+    return "  " + "   ".join(
+        f"[{theme_data.accent}]{key}[/] [{theme_data.dim}]{label}[/]" for key, label in kept
+    )
+
 
 CSS = """
 Screen { layout: vertical; }
 StatusBar { height: 1; dock: top; padding: 0 1; }
 #body { height: 1fr; padding: 0 1; }
-#hint { dock: bottom; height: 1; padding: 0 1; }
+#hint { dock: bottom; height: 1; padding: 0 1; color: $dl-dim; }
+
 AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen, DuplicateModal,
 SettingsMenuScreen, FormScreen, ProxyScreen, HeadersScreen, CategoriesScreen {
     align: center middle;
+    background: $dl-veil;
 }
+
 #add-box, #limit-box, #confirm-box, #delete-box, #picker-box, #duplicate-box, #settings-box {
-    width: 76; padding: 1 2; border: round $accent; background: $surface;
+    width: 72;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    border: round $dl-accent;
+    background: $dl-surface;
 }
-#settings-list, #settings-error { height: auto; }
-#settings-head { text-style: bold; }
+
+#add-box Label, #limit-box Label, #confirm-box Label, #delete-box Label,
+#duplicate-head, #picker-head, #settings-head { text-style: bold; color: $dl-accent; }
+
+#duplicate-detail, #picker-list, #picker-error, #settings-list, #settings-error {
+    height: auto;
+    color: $dl-text;
+}
+
+Button {
+    width: 100%;
+    height: 1;
+    margin-top: 1;
+    border: none;
+    background: $dl-quiet;
+    color: $dl-text;
+    text-style: none;
+}
+Button:hover { background: $dl-accent; color: $dl-surface; }
+Button:focus { background: $dl-accent; color: $dl-surface; text-style: bold; }
+Button.-error, Button#disk, Button#overwrite {
+    background: $dl-quiet;
+    color: $dl-danger;
+}
+Button.-error:focus, Button#disk:focus, Button#overwrite:focus {
+    background: $dl-danger;
+    color: $dl-surface;
+}
+
+Input, TextArea {
+    border: round $dl-quiet;
+    background: $dl-surface;
+    color: $dl-text;
+}
+Input:focus, TextArea:focus { border: round $dl-accent; }
+
+#urls { height: 6; }
 #settings-input { margin-top: 1; }
-#duplicate-box Button { width: 100%; margin-top: 1; }
-#duplicate-head { text-style: bold; }
-#duplicate-detail { height: auto; margin-top: 1; }
-#picker-list { height: auto; }
-#picker-error { height: auto; }
-#picker-head { text-style: bold; }
-#delete-box Button { width: 100%; margin-top: 1; }
-#urls { height: 8; }
 """
 
-HINT = (
-    "a add   space pause/resume   d delete   J K reorder   l limit   "
-    "o open   f finder   s settings   tab completed   q quit"
+HINT_KEYS = (
+    ("a", "add"),
+    ("space", "pause"),
+    ("d", "delete"),
+    ("J K", "move"),
+    ("l", "limit"),
+    ("o", "open"),
+    ("f", "finder"),
+    ("s", "settings"),
+    ("tab", "done"),
+    ("q", "quit"),
 )
-HINT_DONE = "o open   f finder   d delete   ↑↓ move   tab active   q quit"
+DONE_KEYS = (
+    ("o", "open"),
+    ("f", "finder"),
+    ("d", "delete"),
+    ("↑↓", "move"),
+    ("tab", "active"),
+    ("q", "quit"),
+)
+HINT = "  ".join(f"{k} {v}" for k, v in HINT_KEYS)
+HINT_DONE = "  ".join(f"{k} {v}" for k, v in DONE_KEYS)
 
 SETTLED = ("removed", "error", "complete")
 SETTLE_TIMEOUT = 5.0
@@ -100,7 +183,26 @@ class DlApp(App):
         self.table = DownloadTable(self.theme_data, id="table")
         self.completed = CompletedTable(self.theme_data, id="completed")
         self.hint_text = HINT
-        self.hint = Static(HINT, id="hint")
+        self.hint = Static(render_hint(HINT_KEYS, self.theme_data), id="hint", markup=True)
+
+    def get_css_variables(self) -> dict[str, str]:
+        """Textual's stock palette is blue and orange, which is why the modals
+        looked like a different program. Feeding dl's own theme in means the
+        chrome follows whichever theme is chosen."""
+        # Textual asks for these during App.__init__, before our theme exists.
+        chosen = getattr(self, "theme_data", None) or theme.THEMES[theme.DEFAULT]
+        return {
+            **super().get_css_variables(),
+            "dl-accent": chosen.accent,
+            "dl-danger": chosen.danger,
+            "dl-ok": chosen.ok,
+            "dl-warn": chosen.warn,
+            "dl-dim": chosen.dim,
+            "dl-text": "#d7dae0" if not chosen.mono else "#ffffff",
+            "dl-surface": "#15171c" if not chosen.mono else "#000000",
+            "dl-quiet": "#232833" if not chosen.mono else "#222222",
+            "dl-veil": "rgba(8,10,14,0.65)",
+        }
 
     def compose(self) -> ComposeResult:
         yield self.status
@@ -109,7 +211,15 @@ class DlApp(App):
             yield self.completed
         yield self.hint
 
+    def _repaint_hint(self) -> None:
+        pairs = DONE_KEYS if self.showing_completed else HINT_KEYS
+        self.hint.update(render_hint(pairs, self.theme_data, self.size.width or 100))
+
+    def on_resize(self, _event) -> None:
+        self._repaint_hint()
+
     def on_mount(self) -> None:
+        self._repaint_hint()
         ytjob.sweep(STATE_DIR / "yt", self.history_log)
         self.completed.display = False
         self.set_interval(0.5, self.refresh_data)
@@ -136,6 +246,8 @@ class DlApp(App):
         for widget in (self.status, self.table, self.completed):
             widget.theme_data = self.theme_data
         self.table.refresh_view()
+        self._repaint_hint()
+        self.refresh_css()
         if cfg.general.max_concurrent != was.general.max_concurrent:
             try:
                 self.client.change_global_option(
@@ -184,9 +296,7 @@ class DlApp(App):
         elapsed = int(time.monotonic() - self.started)
         self.status.update_stats(stats_from(stat, elapsed))
         if self.splash_when_empty and not self.showing_completed:
-            self.table.placeholder = (
-                f"[{self.theme_data.accent}]{SPLASH}[/]\n   press a to add a download"
-            )
+            self.table.placeholder = splash(self.theme_data)
         self._after_refresh(items)
 
     def _selected(self):
@@ -339,7 +449,7 @@ class DlApp(App):
         self.table.display = not self.showing_completed
         self.completed.display = self.showing_completed
         self.hint_text = HINT_DONE if self.showing_completed else HINT
-        self.hint.update(self.hint_text)
+        self._repaint_hint()
         if self.showing_completed:
             self.completed.load(self.history_log)
 

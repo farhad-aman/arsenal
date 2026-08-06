@@ -110,3 +110,63 @@ def test_progress_bar_clamps_out_of_range():
 
 def test_spinner_has_ten_frames():
     assert len(SPINNER) == 10
+
+
+def test_cells_counts_ascii_as_one_each():
+    from dl.format import cells
+
+    assert cells("ubuntu.iso") == 10
+
+
+def test_cells_counts_an_emoji_as_two():
+    """Python's len() says one, the terminal draws two. Padding by len is why
+    every column after a name with emoji in it drifts."""
+    from dl.format import cells
+
+    assert cells("🎬") == 2
+    assert cells("a🎬b") == 4
+
+
+def test_cells_counts_fullwidth_punctuation_as_two():
+    from dl.format import cells
+
+    assert cells("｜") == 2
+
+
+def test_cells_ignores_combining_marks():
+    from dl.format import cells
+
+    assert cells("é") == 1
+
+
+def test_pad_fills_to_a_true_column_width():
+    from dl.format import cells, pad
+
+    for text in ("plain", "🎬 clip", "دختره💔", "Toxicity ｜ x"):
+        assert cells(pad(text, 24)) == 24, text
+
+
+def test_pad_leaves_text_that_is_already_too_wide():
+    from dl.format import pad
+
+    assert pad("x" * 30, 10) == "x" * 30
+
+
+def test_rpad_right_aligns_to_a_true_column_width():
+    from dl.format import cells, rpad
+
+    assert cells(rpad("🎬 5 GB", 20)) == 20
+    assert rpad("ok", 6).endswith("ok")
+
+
+def test_trim_cuts_to_a_true_width():
+    from dl.format import cells, trim
+
+    assert cells(trim("🎬🎬🎬🎬", 5)) <= 5
+    assert trim("short", 20) == "short"
+
+
+def test_trim_never_splits_a_wide_glyph_in_half():
+    from dl.format import cells, trim
+
+    assert cells(trim("🎬🎬", 3)) == 2

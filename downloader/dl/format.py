@@ -1,8 +1,53 @@
+import unicodedata
 from collections.abc import Sequence
 
 BLOCKS = "▁▂▃▄▅▆▇█"
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 DASH = "—"
+
+
+def cells(text: str) -> int:
+    """How many terminal columns this text occupies.
+
+    len() counts codepoints, and an emoji or a fullwidth character is drawn two
+    columns wide. Padding by len() is why every column after a name containing
+    one drifts left by a cell.
+    """
+    return sum(
+        0
+        if unicodedata.combining(ch)
+        else 2
+        if unicodedata.east_asian_width(ch) in ("W", "F")
+        else 1
+        for ch in text
+    )
+
+
+def pad(text: str, width: int) -> str:
+    return text + " " * max(width - cells(text), 0)
+
+
+def rpad(text: str, width: int) -> str:
+    return " " * max(width - cells(text), 0) + text
+
+
+def trim(text: str, width: int) -> str:
+    """Cut to a column count without splitting a two-cell glyph in half."""
+    if cells(text) <= width:
+        return text
+    out = ""
+    used = 0
+    for ch in text:
+        step = cells(ch)
+        if used + step > width:
+            break
+        out += ch
+        used += step
+    return out
+
+
+def fit(text: str, width: int) -> str:
+    return pad(trim(text, width), width)
 
 _UNITS = ("B", "KB", "MB", "GB", "TB", "PB")
 
