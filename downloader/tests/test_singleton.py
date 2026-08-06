@@ -71,6 +71,19 @@ def test_a_second_dashboard_is_refused(tmp_path):
     assert other is False
 
 
+def test_two_starting_together_do_not_both_get_in(tmp_path):
+    """Read-then-write let both see an empty lock and both take it."""
+    first = instance.acquire(tmp_path, pid=os.getpid())
+    second = instance.acquire(tmp_path, pid=os.getpid() + 1)
+    assert [first, second] == [True, False]
+    assert instance.holder(tmp_path) == os.getpid()
+
+
+def test_taking_the_lock_twice_from_the_same_process_is_fine(tmp_path):
+    assert instance.acquire(tmp_path) is True
+    assert instance.acquire(tmp_path) is True
+
+
 def test_a_lock_left_by_a_dead_process_is_taken_over(tmp_path):
     """A crash must not lock the dashboard out for good."""
     instance.acquire(tmp_path, pid=999_999)

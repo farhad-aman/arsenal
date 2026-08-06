@@ -87,6 +87,11 @@ There is one aria2 daemon on one port, and one dashboard. A second `dl` window
 is refused rather than opened beside the first: both would act on the same
 queue from their own idea of what is in it.
 
+`dl <url>` normally attaches a live view of what it just queued. That view is a
+dashboard too, so with one already open it stands down and prints a line
+instead — the download is queued either way, and the open window is where it
+appears. Every other subcommand is a short-lived client and runs whenever.
+
 Earlier versions moved to the next free port when theirs was busy, which is how
 a machine ends up carrying daemons nothing can reach — holding downloads that
 never appear anywhere. Starting `dl` now brings its own daemon back to the one

@@ -2,10 +2,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .. import duplicates, history, routing
-from ..config import Category
+from .. import duplicates, history, instance, routing
+from ..config import STATE_DIR, Category
 from ..format import human_bytes, human_duration, human_speed
-from ..theme import select
+from ..theme import glyph, select
 from .app import DlApp
 from .modals import DuplicateModal
 from .picker import CancelAll, PickerScreen
@@ -223,11 +223,24 @@ class PreviewApp(DlApp):
 
 
 def run_preview(
-    cfg, client, gids=(), pending=(), queue=None, pick_paths=True
+    cfg, client, gids=(), pending=(), queue=None, pick_paths=True, state=STATE_DIR
 ) -> tuple[list[str], bool]:
-    """Return the lines to print and whether the batch was cancelled."""
-    app = PreviewApp(cfg, client, gids, pending, queue, pick_paths)
-    app.run()
+    """Return the lines to print and whether the batch was cancelled.
+
+    The preview is a dashboard scoped to one batch, so it stands down when a
+    real one is open — two would fight over the same queue. Standing down is
+    not refusing: the download is already queued either way, and the open
+    dashboard is where it will appear.
+    """
+    if instance.holder(state):
+        return [f"  {glyph('⬇', select(cfg).icons)} queued — watch it in the open dl window"], False
+    if not instance.acquire(state):
+        return [f"  {glyph('⬇', select(cfg).icons)} queued"], False
+    try:
+        app = PreviewApp(cfg, client, gids, pending, queue, pick_paths)
+        app.run()
+    finally:
+        instance.release(state)
     icons = select(cfg).icons
     if app.cancelled:
         return [f"  {MARKS[icons]['fail']} cancelled — nothing queued"], True
