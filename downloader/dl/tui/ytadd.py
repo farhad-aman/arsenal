@@ -1,11 +1,12 @@
 import asyncio
 from pathlib import Path
 
-from .. import duplicates, history, routing, ytjob, ytrun
+from .. import duplicates, history, playlist, routing, ytjob, ytrun
 from ..config import STATE_DIR, Config
 from ..format import human_bytes
 from .modals import ConfirmModal, DuplicateModal
 from .picker import CancelAll, PickerScreen
+from .playlistscreen import PlaylistScreen
 from .ytoptions import YouTubeOptionsScreen
 
 
@@ -32,22 +33,72 @@ class YouTubeAdder:
         proxy: bool = False,
         state: Path | None = None,
         spawn=None,
+        titles: dict[str, str] | None = None,
+        shared: bool = False,
     ):
         self.host = host
         self.cfg = cfg
         self.urls = list(urls)
+        # A collection is one decision, not one per video. The titles come
+        # from the flat listing, which is why these need no probe.
+        self.shared = shared
+        self.titles = dict(titles or {})
+        self._choices = None
+        self._where = None
         self.proxy = proxy
         self.state = state or STATE_DIR
         self.queued: list[dict] = []
         self.skipped: list[dict] = []
         self.cancelled = False
+        self.failed = ""
         self.can_burn = ytjob.burn_in_available()
         self._spawn = spawn
         self._finished = None
 
     def start(self, finished=None) -> None:
         self._finished = finished
+        collections = [url for url in self.urls if playlist.is_collection(url)]
+        if collections and not self.shared:
+            self.urls = [url for url in self.urls if url not in collections]
+            self.host.run_worker(self._open_collection(collections[0]), exclusive=False)
+            return
         self._ask_options(0)
+
+    async def _open_collection(self, url: str) -> None:
+        """A playlist or channel: find out what is in it, then ask how much.
+
+        Listing is flat — one request for the whole thing rather than one per
+        video — so this is a moment even for a long channel.
+        """
+        try:
+            entries = await asyncio.to_thread(
+                playlist.expand, url, self._proxy_for(url), self.cfg.cookies_from
+            )
+        except playlist.ListingFailed as exc:
+            self.failed = f"{url}: {exc}"
+            self._done()
+            return
+
+        def decided(count: int | None) -> None:
+            if not count:
+                self.cancelled = True
+                self._done()
+                return
+            taken = entries[:count]
+            self.urls = [entry.url for entry in taken]
+            self.titles = {entry.url: entry.title for entry in taken}
+            self.shared = True
+            self._ask_options(0)
+
+        self.host.push_screen(
+            PlaylistScreen(self.collection_title(url, entries), len(entries)), decided
+        )
+
+    def collection_title(self, url: str, entries) -> str:
+        return playlist.name_of(entries, label_for(url))
+
+    def _proxy_for(self, url: str) -> str:
+        return self.cfg.proxy if routing.through_proxy(url, self.cfg, self.proxy) else ""
 
     def _done(self) -> None:
         if self._finished is not None:
@@ -57,16 +108,45 @@ class YouTubeAdder:
         if index >= len(self.urls):
             self._done()
             return
+        if self.shared and self._choices is not None:
+            self._queue_shared(index)
+            return
         url = self.urls[index]
 
         def chosen(choices):
             if choices is None:
                 self._ask_options(index + 1)
                 return
+            self._choices = choices
             self._ask_where(index, choices)
 
         self.host.push_screen(
-            YouTubeOptionsScreen(label_for(url), can_burn=self.can_burn), chosen
+            YouTubeOptionsScreen(self._label(url), can_burn=self.can_burn), chosen
+        )
+
+    def _label(self, url: str) -> str:
+        return self.titles.get(url) or label_for(url)
+
+    def _queue_shared(self, index: int) -> None:
+        """Every video after the first, on the answers already given.
+
+        No probe: the listing carried the titles, and asking YouTube about each
+        video in turn would hold a long playlist at the starting line for
+        minutes before anything downloaded.
+        """
+        url = self.urls[index]
+        job = self._job_for(url, self._where)
+        job["title"] = self.titles.get(url, "")
+        self._queue(index, job)
+
+    def _job_for(self, url: str, where):
+        category = self.cfg.categories.get("video") or routing.OTHER
+        return ytjob.new_job(
+            url,
+            Path(where or category.dir),
+            self._choices,
+            self.cfg.proxy if routing.through_proxy(url, self.cfg, self.proxy) else "",
+            self.cfg.cookies_from,
         )
 
     def _ask_where(self, index: int, choices) -> None:
@@ -79,6 +159,7 @@ class YouTubeAdder:
                 self.cancelled = True
                 self._done()
                 return
+            self._where = where
             job = ytjob.new_job(
                 url,
                 Path(where or default_dir),
@@ -86,11 +167,15 @@ class YouTubeAdder:
                 self.cfg.proxy if routing.through_proxy(url, self.cfg, self.proxy) else "",
                 self.cfg.cookies_from,
             )
+            if self.shared:
+                job["title"] = self.titles.get(url, "")
+                self._queue(index, job)
+                return
             self.host.run_worker(self._settle(index, job), exclusive=False)
 
         self.host.push_screen(
             PickerScreen(
-                filename=label_for(url),
+                filename=self._label(url),
                 default_dir=default_dir,
                 category=category,
                 cfg=self.cfg,

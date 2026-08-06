@@ -229,6 +229,38 @@ HTML, so `r` opens the quality picker and the destination picker the way `dl
 sends the direct URLs to aria2 first and asks about the YouTube ones after,
 so two questions never stack on one another.
 
+## Playlists and channels
+
+A playlist or channel address expands into its videos: `dl` lists what is in
+there, says how many, and waits. Nothing is queued until you agree, because a
+channel can hold thousands.
+
+Quality and destination are asked once for the whole collection, then one job
+is queued per video — each with its own progress, and its own `space`, `r` and
+`d`, so one failure does not take the rest down with it.
+
+A video address copied while watching inside a playlist carries `list=`, and
+still downloads only that video. Only a bare playlist or channel address means
+the collection:
+
+```
+youtube.com/watch?v=abc&list=PLxyz   →  that video
+youtube.com/playlist?list=PLxyz      →  the playlist
+youtube.com/@channel/videos          →  the channel
+```
+
+Listing is flat — one request for the whole collection rather than one per
+video — so it is quick even for a long channel, and the titles come back with
+it. That is also why no size is shown: knowing it means extracting every video
+in turn, which is minutes of waiting before anything downloads.
+
+Collection videos skip the per-video duplicate check for the same reason. A
+file already on disk is left alone by yt-dlp rather than asked about.
+
+Nothing throttles YouTube jobs: `max_concurrent` governs aria2's queue, and
+yt-dlp downloads all start at once. Take a large collection in parts if that
+matters.
+
 ## Search
 
 `/` filters both tabs by filename. Rows that do not match are hidden, so `J`,
@@ -456,6 +488,7 @@ The suite covers behaviour; these are the things only an eye can check.
 - [ ] `S` reorders the list visibly and the bar underneath names the order
 - [ ] `y` on a finished download puts its URL on the clipboard
 - [ ] `r` on a finished YouTube entry opens the quality picker, not an aria2 add
+- [ ] A playlist URL shows its real name and count before queuing anything
 - [ ] `NO_COLOR=1 dl` emits no colour
 - [ ] Resize below 80, 66, and 50 columns — layout degrades, never scrolls sideways
 - [ ] macOS notification appears on completion

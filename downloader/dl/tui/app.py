@@ -85,12 +85,14 @@ StatusBar { height: 1; dock: top; padding: 0 1; }
 #search-input { dock: bottom; height: 3; margin: 0 1; }
 
 AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen, DuplicateModal,
-SettingsMenuScreen, FormScreen, ProxyScreen, HeadersScreen, CategoriesScreen {
+SettingsMenuScreen, FormScreen, ProxyScreen, HeadersScreen, CategoriesScreen,
+PlaylistScreen {
     align: center middle;
     background: $dl-veil;
 }
 
-#add-box, #limit-box, #confirm-box, #delete-box, #picker-box, #duplicate-box, #settings-box {
+#add-box, #limit-box, #confirm-box, #delete-box, #picker-box, #duplicate-box,
+#settings-box, #playlist-box {
     width: 72;
     height: auto;
     max-height: 80%;
@@ -100,9 +102,12 @@ SettingsMenuScreen, FormScreen, ProxyScreen, HeadersScreen, CategoriesScreen {
 }
 
 #add-box Label, #limit-box Label, #confirm-box Label, #delete-box Label,
-#duplicate-head, #picker-head, #settings-head { text-style: bold; color: $dl-accent; }
+#duplicate-head, #picker-head, #settings-head, #playlist-head {
+    text-style: bold; color: $dl-accent;
+}
 
-#duplicate-detail, #picker-list, #picker-error, #settings-list, #settings-error {
+#duplicate-detail, #picker-list, #picker-error, #settings-list, #settings-error,
+#playlist-detail {
     height: auto;
     color: $dl-text;
 }
@@ -704,7 +709,9 @@ class DlApp(App):
 
     def _youtube_added(self, adder) -> None:
         self.youtube_adder = None
-        if adder.cancelled:
+        if adder.failed:
+            self.notify(adder.failed, severity="error")
+        elif adder.cancelled:
             self.notify("cancelled — nothing queued")
         elif adder.queued:
             self.notify(f"queued {len(adder.queued)} to yt-dlp")

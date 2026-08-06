@@ -43,14 +43,15 @@ class YouTubeSetupApp(App):
 
     CSS = """
     Screen { align: center middle; }
-    YouTubeOptionsScreen, PickerScreen, DuplicateModal, ConfirmModal { align: center middle; }
-    #yt-box, #picker-box, #duplicate-box, #confirm-box {
+    YouTubeOptionsScreen, PickerScreen, DuplicateModal, ConfirmModal,
+    PlaylistScreen { align: center middle; }
+    #yt-box, #picker-box, #duplicate-box, #confirm-box, #playlist-box {
         width: 76; padding: 1 2; border: round $accent; background: $surface;
     }
     #confirm-box Button { width: 100%; margin-top: 1; }
-    #yt-head, #duplicate-head { text-style: bold; }
-    #yt-list, #picker-list, #picker-error, #duplicate-detail { height: auto; }
-    #duplicate-box Button { width: 100%; margin-top: 1; }
+    #yt-head, #duplicate-head, #playlist-head { text-style: bold; }
+    #yt-list, #picker-list, #picker-error, #duplicate-detail, #playlist-detail { height: auto; }
+    #duplicate-box Button, #playlist-box Button { width: 100%; margin-top: 1; }
     """
 
     def __init__(self, cfg: Config, urls: list[str], proxy: bool = False):
@@ -62,6 +63,7 @@ class YouTubeSetupApp(App):
         self.queued: list[dict] = []
         self.skipped: list[dict] = []
         self.cancelled = False
+        self.failed = ""
         self.adder = YouTubeAdder(self, cfg, urls, proxy, spawn=spawn)
 
     def on_mount(self) -> None:
@@ -71,6 +73,7 @@ class YouTubeSetupApp(App):
         self.queued = adder.queued
         self.skipped = adder.skipped
         self.cancelled = adder.cancelled
+        self.failed = adder.failed
         self.exit()
 
 
@@ -170,6 +173,8 @@ def run_youtube(
 def _run_youtube(cfg: Config, urls: list[str], proxy: bool) -> tuple[list[str], bool]:
     app = YouTubeSetupApp(cfg, urls, proxy)
     app.run()
+    if app.failed:
+        return [f"  {glyph('❌', select(cfg).icons)} {app.failed}"], True
     if app.cancelled:
         return ["  ✖ cancelled — nothing queued"], True
     mark = glyph("⏭", select(cfg).icons)
