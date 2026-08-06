@@ -88,3 +88,36 @@ def test_another_process_cannot_start_a_dashboard_while_a_preview_is_up(
     monkeypatch.setattr(preview_module, "PreviewApp", lambda *a: Stub())
     preview_module.run_preview(cfg, FakeClient(), state=tmp_path)
     assert refused == [False]
+
+
+def test_the_youtube_flow_refuses_while_a_dashboard_is_open(cfg, tmp_path, monkeypatch):
+    """It opens a full screen and nothing is queued yet, so it points at the
+    window that can add it rather than standing down silently."""
+    from dl.tui import ytflow
+
+    instance.acquire(tmp_path, pid=os.getpid() + 1)
+    monkeypatch.setattr(ytflow, "_run_youtube", lambda *a: pytest.fail("opened anyway"))
+    lines, cancelled = ytflow.run_youtube(cfg, ["https://youtu.be/abc"], state=tmp_path)
+    assert cancelled is True
+    assert "already running" in lines[0]
+
+
+def test_the_youtube_flow_runs_when_nothing_holds_the_lock(cfg, tmp_path, monkeypatch):
+    from dl.tui import ytflow
+
+    monkeypatch.setattr(ytflow, "_run_youtube", lambda *a: (["ok"], False))
+    lines, cancelled = ytflow.run_youtube(cfg, ["https://youtu.be/abc"], state=tmp_path)
+    assert (lines, cancelled) == (["ok"], False)
+    assert instance.holder(tmp_path) == 0
+
+
+def test_the_youtube_flow_gives_the_lock_back_after_a_crash(cfg, tmp_path, monkeypatch):
+    from dl.tui import ytflow
+
+    def boom(*a):
+        raise RuntimeError("crash")
+
+    monkeypatch.setattr(ytflow, "_run_youtube", boom)
+    with pytest.raises(RuntimeError):
+        ytflow.run_youtube(cfg, ["https://youtu.be/abc"], state=tmp_path)
+    assert instance.holder(tmp_path) == 0

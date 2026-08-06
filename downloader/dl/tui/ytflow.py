@@ -5,7 +5,7 @@ from pathlib import Path
 from textual.app import App
 from textual.widgets import Static
 
-from .. import ytjob, ytrun
+from .. import instance, ytjob, ytrun
 from ..config import STATE_DIR, Config
 from ..format import human_bytes
 from ..theme import glyph, select
@@ -146,7 +146,28 @@ def summarise(jobs: list[dict], icons: bool = True) -> list[str]:
 _label = label_for
 
 
-def run_youtube(cfg: Config, urls: list[str], proxy: bool = False) -> tuple[list[str], bool]:
+def run_youtube(
+    cfg: Config, urls: list[str], proxy: bool = False, state: Path = None
+) -> tuple[list[str], bool]:
+    """Ask what to download, then watch it.
+
+    Both are full screens, so neither may open beside the dashboard. Unlike a
+    direct download there is nothing queued yet — the quality question has not
+    been answered — so this refuses rather than standing down, and points at
+    the window that can do the same job.
+    """
+    where = state or STATE_DIR
+    if instance.holder(where):
+        return ["  dl is already running — press a in that window to add it"], True
+    if not instance.acquire(where):
+        return ["  dl is already running"], True
+    try:
+        return _run_youtube(cfg, urls, proxy)
+    finally:
+        instance.release(where)
+
+
+def _run_youtube(cfg: Config, urls: list[str], proxy: bool) -> tuple[list[str], bool]:
     app = YouTubeSetupApp(cfg, urls, proxy)
     app.run()
     if app.cancelled:
