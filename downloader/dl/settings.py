@@ -18,7 +18,6 @@ LIST_SECTIONS = frozenset({"categories", "domains", "headers", "proxy", "proxy_d
 # than defaulting to invisible.
 EDITABLE = LIST_SECTIONS | {
     "theme",
-    "ascii_icons",
     "notify",
     "default_dir",
     "idle_timeout",
@@ -51,7 +50,6 @@ class Field:
 
 GENERAL = (
     Field(("general", "theme"), "Theme", "choice", tuple(THEMES), live=True),
-    Field(("general", "ascii_icons"), "ASCII icons", "bool", live=True),
     Field(("general", "notify"), "Notifications", "bool"),
     Field(("general", "default_dir"), "Default folder", "path"),
     Field(("general", "idle_timeout"), "Daemon idle timeout", "duration"),
@@ -85,7 +83,6 @@ CATEGORY_FIELDS = (
 ATTRIBUTE = {
     ("general", "max_concurrent"): lambda cfg: cfg.general.max_concurrent,
     ("general", "theme"): lambda cfg: cfg.general.theme,
-    ("general", "ascii_icons"): lambda cfg: cfg.general.ascii_icons,
     ("general", "notify"): lambda cfg: cfg.general.notify,
     ("general", "default_dir"): lambda cfg: str(cfg.general.default_dir),
     ("general", "idle_timeout"): lambda cfg: f"{cfg.general.idle_timeout}s",

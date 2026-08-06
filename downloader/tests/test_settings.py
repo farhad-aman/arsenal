@@ -127,14 +127,14 @@ def test_bools_render_as_on_and_off():
     assert settings.render(False) == "off"
 
 
-def test_theme_and_icons_are_the_only_live_fields():
+def test_theme_is_the_only_live_field():
     live = [
         f.path
         for section in (settings.GENERAL, settings.LIMITS, settings.YOUTUBE, settings.HOOKS)
         for f in section
         if f.live
     ]
-    assert sorted(live) == [("general", "ascii_icons"), ("general", "theme")]
+    assert sorted(live) == [("general", "theme")]
 
 
 def test_every_config_setting_is_reachable_from_the_screen():

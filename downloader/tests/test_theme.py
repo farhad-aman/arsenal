@@ -60,16 +60,13 @@ def test_icon_for_mono_theme_uses_ascii_tag(cfg):
     assert len(tag) == 2
 
 
-def test_icon_for_ascii_icons_config(cfg):
-    disabled = config.replace(theme.THEMES["aurora"], icons=False)
-    assert theme.icon_for(cfg.categories["video"], disabled) == "VI"
-
-
-def test_ascii_icons_config_flag_disables_emoji(cfg):
-    ascii_cfg = config.Config(
-        config.replace(cfg.general, ascii_icons=True), cfg.limits, cfg.categories, cfg.domains
-    )
-    assert theme.select(ascii_cfg, env={}).icons is False
+def test_mono_is_the_only_way_to_turn_emoji_off(cfg):
+    """Emoji are the default everywhere; mono is the one opt-out."""
+    for name in theme.THEMES:
+        chosen = config.Config(
+            config.replace(cfg.general, theme=name), cfg.limits, cfg.categories, cfg.domains
+        )
+        assert theme.select(chosen, env={}).icons is (name != "mono"), name
 
 
 def test_ramp_color_endpoints(cfg):

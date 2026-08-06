@@ -140,7 +140,6 @@ class FormScreen(IconMixin, ModalScreen[dict]):
         general = replace(
             self.cfg.general,
             theme=self.values.get(("general", "theme"), self.cfg.general.theme),
-            ascii_icons=self.values.get(("general", "ascii_icons"), self.cfg.general.ascii_icons),
         )
         return replace(self.cfg, general=general)
 

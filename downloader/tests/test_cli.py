@@ -485,9 +485,9 @@ def test_ls_leaves_a_direct_download_unbadged(sandbox_cfg, capsys):
     assert "🌐" not in capsys.readouterr().out
 
 
-def test_ls_uses_a_text_badge_in_ascii_mode(sandbox_cfg, capsys):
+def test_ls_uses_a_text_badge_under_the_mono_theme(sandbox_cfg, capsys):
     cfg = config.replace(
-        sandbox_cfg, general=config.replace(sandbox_cfg.general, ascii_icons=True)
+        sandbox_cfg, general=config.replace(sandbox_cfg.general, theme="mono")
     )
     client = OptionClient({"g1": {"all-proxy": "http://127.0.0.1:2080"}})
     client.active = [proxied_status()]

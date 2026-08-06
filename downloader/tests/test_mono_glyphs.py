@@ -1,8 +1,8 @@
-"""ascii_icons has to reach every surface, not just the download table.
+"""The mono theme has to reach every surface, not just the download table.
 
-The point of the setting is column alignment: some terminal fonts draw emoji
-one cell wide instead of two, and everything after them shifts. So the check
-is not "no emoji" but "nothing double-width" — which is what actually breaks.
+The point of mono is column alignment: some terminal fonts draw emoji one cell
+wide instead of two, and everything after them shifts. So the check is not
+"no emoji" but "nothing double-width" — which is what actually breaks.
 """
 
 import unicodedata
@@ -27,9 +27,9 @@ def wide(text: str) -> list[str]:
 
 
 @pytest.fixture
-def ascii_cfg(sandbox_cfg):
+def mono_cfg(sandbox_cfg):
     return config.replace(
-        sandbox_cfg, general=config.replace(sandbox_cfg.general, ascii_icons=True)
+        sandbox_cfg, general=config.replace(sandbox_cfg.general, theme="mono")
     )
 
 
@@ -75,40 +75,40 @@ def test_the_glyph_table_covers_every_emoji_it_is_asked_for():
         assert not wide(plain), f"{symbol} maps to something still double-width"
 
 
-def test_a_download_row_has_no_wide_glyphs(ascii_cfg):
-    row = row_from_status(status(), ascii_cfg, proxied=True)
-    th = theme.select(ascii_cfg)
+def test_a_download_row_has_no_wide_glyphs(mono_cfg):
+    row = row_from_status(status(), mono_cfg, proxied=True)
+    th = theme.select(mono_cfg)
     for line in render_row(row, th, 100, selected=True, frame=0, expanded=True):
         assert not wide(line), line
 
 
-def test_the_queue_line_has_no_wide_glyphs(ascii_cfg, capsys):
+def test_the_queue_line_has_no_wide_glyphs(mono_cfg, capsys):
     client = Recorder()
-    cli.cmd_add(["https://e.com/a.iso"], ascii_cfg, client, None)
+    cli.cmd_add(["https://e.com/a.iso"], mono_cfg, client, None)
     out = capsys.readouterr().out
     assert not wide(out), out
 
 
-def test_a_skipped_duplicate_line_has_no_wide_glyphs(ascii_cfg, capsys):
+def test_a_skipped_duplicate_line_has_no_wide_glyphs(mono_cfg, capsys):
     from dl import duplicates
 
     client = Recorder()
     cli.cmd_add(
-        ["https://e.com/a.iso"], ascii_cfg, client, None, decisions=[duplicates.SKIP]
+        ["https://e.com/a.iso"], mono_cfg, client, None, decisions=[duplicates.SKIP]
     )
     out = capsys.readouterr().out
     assert not wide(out), out
 
 
-def test_ls_has_no_wide_glyphs(ascii_cfg, capsys):
+def test_ls_has_no_wide_glyphs(mono_cfg, capsys):
     client = Recorder()
     client.active = [status()]
-    cli.cmd_ls(ascii_cfg, client, use_color=False)
+    cli.cmd_ls(mono_cfg, client, use_color=False)
     out = capsys.readouterr().out
     assert not wide(out), out
 
 
-def test_history_has_no_wide_glyphs(ascii_cfg, tmp_path, capsys):
+def test_history_has_no_wide_glyphs(mono_cfg, tmp_path, capsys):
     from dl import history
 
     log = tmp_path / "history.jsonl"
@@ -125,13 +125,13 @@ def test_history_has_no_wide_glyphs(ascii_cfg, tmp_path, capsys):
         },
         log,
     )
-    cli.cmd_history(ascii_cfg, log, [])
+    cli.cmd_history(mono_cfg, log, [])
     out = capsys.readouterr().out
     assert not wide(out), out
 
 
-def test_the_completed_tab_has_no_wide_glyphs(ascii_cfg):
-    th = theme.select(ascii_cfg)
+def test_the_completed_tab_has_no_wide_glyphs(mono_cfg):
+    th = theme.select(mono_cfg)
     for state in ("ok", "error"):
         record = {
             "name": "a.iso",
@@ -145,14 +145,14 @@ def test_the_completed_tab_has_no_wide_glyphs(ascii_cfg):
         assert not wide(line), line
 
 
-def test_the_clipboard_watcher_has_no_wide_glyphs(ascii_cfg, capsys):
+def test_the_clipboard_watcher_has_no_wide_glyphs(mono_cfg, capsys):
     client = Recorder()
-    watch.poll_once("https://e.com/a.iso", deque(maxlen=20), ascii_cfg, client)
+    watch.poll_once("https://e.com/a.iso", deque(maxlen=20), mono_cfg, client)
     out = capsys.readouterr().out
     assert not wide(out), out
 
 
-def test_the_youtube_summary_has_no_wide_glyphs(ascii_cfg):
+def test_the_youtube_summary_has_no_wide_glyphs(mono_cfg):
     jobs = [
         {"status": "complete", "file": "/tmp/clip.mp4", "done": 10, "url": "u"},
         {"status": "error", "file": "", "error": "boom", "url": "u"},
@@ -162,7 +162,7 @@ def test_the_youtube_summary_has_no_wide_glyphs(ascii_cfg):
         assert not wide(line), line
 
 
-async def test_the_settings_screens_have_no_wide_glyphs(ascii_cfg):
+async def test_the_settings_screens_have_no_wide_glyphs(mono_cfg):
     from textual.app import App, ComposeResult
     from textual.widgets import Static
 
@@ -187,10 +187,10 @@ async def test_the_settings_screens_have_no_wide_glyphs(ascii_cfg):
             pass
 
     screens = [
-        FormScreen("General", settings.GENERAL, ascii_cfg),
-        ProxyScreen(config.replace(ascii_cfg, proxy_domains=("youtube.com",))),
-        HeadersScreen(config.replace(ascii_cfg, headers={"e.com": {"X": "1"}})),
-        CategoriesScreen(ascii_cfg),
+        FormScreen("General", settings.GENERAL, mono_cfg),
+        ProxyScreen(config.replace(mono_cfg, proxy_domains=("youtube.com",))),
+        HeadersScreen(config.replace(mono_cfg, headers={"e.com": {"X": "1"}})),
+        CategoriesScreen(mono_cfg),
     ]
     for screen in screens:
         app = Host(screen)

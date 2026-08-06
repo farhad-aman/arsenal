@@ -185,9 +185,9 @@ Mouse works too: click to select and scroll.
 Hooks as forms, plus list editors for proxy domains, per-host headers and
 categories.
 
-Theme and icons preview as you move through them so you can see what you are
-choosing; everything else applies on `^S`. `Esc` discards, including an unsaved
-theme preview.
+The theme previews as you move through it so you can see what you are choosing;
+everything else applies on `^S`. `Esc` discards, including an unsaved theme
+preview.
 
 Nothing needs a restart. Most settings are read when they are next used, so they
 apply to the next download, and `max_concurrent` is pushed to the running daemon.
@@ -212,8 +212,7 @@ restart it, or make the change from the screen.
 | `general.default_dir` | `~/Downloads` | fallback when nothing matches |
 | `general.max_concurrent` | `3` | parallel downloads |
 | `general.idle_timeout` | `"10m"` | daemon self-shutdown after the queue empties |
-| `general.theme` | `"aurora"` | `aurora`, `ember`, `matrix`, `mono` |
-| `general.ascii_icons` | `false` | replace every emoji with an ASCII stand-in |
+| `general.theme` | `"aurora"` | `aurora`, `ember`, `matrix`, `dusk`, `mono` |
 | `general.notify` | `true` | macOS banner on completion |
 | `hooks.on_complete` | `""` | command to run after each finished download |
 | `hooks.timeout` | `"5m"` | how long that command may take |
@@ -352,8 +351,8 @@ libass, so it has no `subtitles` filter and `brew reinstall ffmpeg` produces the
 same binary. `brew install homebrew-ffmpeg/ffmpeg/ffmpeg` builds one that can.
 Soft subtitles need nothing extra.
 
-**Emoji look wrong or columns misalign** — set `ascii_icons = true`, or use
-`theme = "mono"`.
+**Emoji look wrong or columns misalign** — set `theme = "mono"`, which swaps
+every emoji for an ASCII stand-in. It is the only theme without them.
 
 ## Manual checklist
 
@@ -363,7 +362,7 @@ The suite covers behaviour; these are the things only an eye can check.
 - [ ] Progress bars animate smoothly; the comet tail is visible
 - [ ] Header sparkline changes colour with throughput
 - [ ] Emoji render in your terminal font and columns stay aligned
-- [ ] `ascii_icons = true` keeps alignment with no emoji
+- [ ] `theme = "mono"` keeps alignment with no emoji
 - [ ] `NO_COLOR=1 dl` emits no colour
 - [ ] Resize below 80, 66, and 50 columns — layout degrades, never scrolls sideways
 - [ ] macOS notification appears on completion

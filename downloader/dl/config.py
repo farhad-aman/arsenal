@@ -36,7 +36,6 @@ class General:
     max_concurrent: int
     idle_timeout: int
     theme: str
-    ascii_icons: bool
     notify: bool
 
 
@@ -115,7 +114,6 @@ _DEFAULT_GENERAL = General(
     max_concurrent=3,
     idle_timeout=600,
     theme="aurora",
-    ascii_icons=False,
     notify=True,
 )
 
@@ -142,7 +140,6 @@ def _general_from(raw: dict) -> General:
         max_concurrent=int(raw["max_concurrent"]) if "max_concurrent" in raw else g.max_concurrent,
         idle_timeout=parse_duration(raw["idle_timeout"]) if "idle_timeout" in raw else g.idle_timeout,
         theme=str(raw["theme"]) if "theme" in raw else g.theme,
-        ascii_icons=bool(raw["ascii_icons"]) if "ascii_icons" in raw else g.ascii_icons,
         notify=bool(raw["notify"]) if "notify" in raw else g.notify,
     )
 
@@ -216,7 +213,6 @@ default_dir     = "~/Downloads"
 max_concurrent  = 3
 idle_timeout    = "10m"
 theme           = "aurora"
-ascii_icons     = false
 notify          = true
 
 [proxy]

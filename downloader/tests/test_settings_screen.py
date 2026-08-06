@@ -82,10 +82,10 @@ async def test_arrows_toggle_a_bool_field(cfg):
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("down")
-        before = screen.values[("general", "ascii_icons")]
+        before = screen.values[("general", "notify")]
         await pilot.press("right")
         await pilot.pause()
-        assert screen.values[("general", "ascii_icons")] is not before
+        assert screen.values[("general", "notify")] is not before
 
 
 async def test_a_live_field_previews_at_once(cfg):

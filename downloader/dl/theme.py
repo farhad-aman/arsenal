@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from .config import Category, Config
 
@@ -85,10 +85,7 @@ def select(cfg: Config, env: dict[str, str] | None = None) -> Theme:
     environ = os.environ if env is None else env
     if environ.get("NO_COLOR") or environ.get("TERM") == "dumb":
         return THEMES["mono"]
-    chosen = THEMES.get(cfg.general.theme, THEMES[DEFAULT])
-    if cfg.general.ascii_icons:
-        chosen = replace(chosen, icons=False)
-    return chosen
+    return THEMES.get(cfg.general.theme, THEMES[DEFAULT])
 
 
 GLYPHS = {
@@ -118,7 +115,7 @@ GLYPHS = {
 
 
 def glyph(symbol: str, icons: bool) -> str:
-    """The ASCII stand-in for an emoji.
+    """The ASCII stand-in an emoji falls back to under the mono theme.
 
     Some terminal fonts draw emoji one cell wide instead of two, which shifts
     every column after them out of line. These stand-ins are unambiguous.
