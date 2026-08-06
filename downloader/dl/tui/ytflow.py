@@ -117,8 +117,9 @@ class YouTubeWatchApp(App):
         self.call_after_refresh(self.poll)
 
     def poll(self) -> None:
+        held = set(ytqueue.claims(jobs_dir()))
         mine = [
-            ytjob.reap(jobs_dir(), j)
+            ytjob.reap(jobs_dir(), j, held)
             for j in ytjob.list_jobs(jobs_dir())
             if j.get("id") in self.ids
         ]

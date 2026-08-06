@@ -272,20 +272,28 @@ def _recorded_urls(history_log: Path | None) -> set[str]:
     return {record.get("url", "") for record in history.tail(history_log, 1000)}
 
 
-def orphaned(job: dict) -> bool:
+def orphaned(job: dict, held) -> bool:
     """A record still claiming to run with nothing behind it.
 
-    Only a supervisor known to have existed counts. A job spawned moments ago
-    has not written its pid yet, and the probe can hold it there for minutes.
+    Judged by whether anything is still keeping the job's slot fresh, not by
+    whether its pid answers: the dashboard spawns supervisors and never reaps
+    them, so a killed one lingers as a zombie and passes kill(pid, 0) exactly
+    as a live one does.
+
+    Only a supervisor known to have existed counts. A job waiting its turn has
+    no slot and no pid, and is not orphaned — it has simply not started.
     """
     if job.get("status") not in UNFINISHED:
         return False
-    watcher = job.get("supervisor", 0)
-    return bool(watcher) and not running(watcher)
+    return bool(job.get("supervisor", 0)) and job.get("id") not in held
 
 
-def reap(directory: Path, job: dict) -> dict:
-    if not orphaned(job):
+def reap(directory: Path, job: dict, held=None) -> dict:
+    if held is None:
+        from . import ytqueue
+
+        held = set(ytqueue.claims(directory))
+    if not orphaned(job, held):
         return job
     job.update(status="error", error="stopped — nothing is downloading this", speed=0)
     save(directory, job)
@@ -312,10 +320,13 @@ def sweep(
     if not directory.is_dir():
         return
     moment = time.time() if now is None else now
+    from . import ytqueue
+
     recorded = _recorded_urls(history_log)
+    held = set(ytqueue.claims(directory))
     live: set[str] = set()
     for job in list_jobs(directory):
-        reap(directory, job)
+        reap(directory, job, held)
         record = directory / f"{job['id']}.json"
         finished = job.get("status") in ("complete", "cancelled")
         aged = moment - record.stat().st_mtime > keep_finished

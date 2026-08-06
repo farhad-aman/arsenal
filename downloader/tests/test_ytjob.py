@@ -310,27 +310,33 @@ def dead_pid():
     return proc.pid
 
 
-def test_a_job_whose_supervisor_is_alive_is_not_orphaned(tmp_path):
-    assert ytjob.orphaned(live_job(tmp_path)) is False
+def test_a_job_whose_slot_is_still_held_is_not_orphaned(tmp_path):
+    job = live_job(tmp_path)
+    assert ytjob.orphaned(job, held={job["id"]}) is False
 
 
-def test_a_job_whose_supervisor_died_is_orphaned(tmp_path):
-    assert ytjob.orphaned(live_job(tmp_path, supervisor=dead_pid())) is True
+def test_a_job_with_nothing_holding_its_slot_is_orphaned(tmp_path):
+    """Judged by the slot, not the pid: the dashboard never reaps the
+    supervisors it spawns, so a killed one lingers as a zombie and answers
+    kill(pid, 0) exactly as a live one does."""
+    assert ytjob.orphaned(live_job(tmp_path, supervisor=dead_pid()), held=set()) is True
 
 
 def test_a_job_that_has_not_started_its_supervisor_yet_is_left_alone(tmp_path):
-    """Between spawn and the supervisor's first write there is no pid to check,
-    and a probe can hold that state for minutes."""
-    assert ytjob.orphaned(live_job(tmp_path, status="queued", supervisor=0)) is False
+    """Between spawn and the supervisor's first write there is no pid, and a
+    probe can hold that state for minutes. A job still waiting for a slot has
+    no claim either, and has simply not started."""
+    assert ytjob.orphaned(live_job(tmp_path, status="queued", supervisor=0), held=set()) is False
 
 
 def test_a_finished_job_is_never_orphaned(tmp_path):
-    assert ytjob.orphaned(live_job(tmp_path, status="complete", supervisor=dead_pid())) is False
+    job = live_job(tmp_path, status="complete", supervisor=dead_pid())
+    assert ytjob.orphaned(job, held=set()) is False
 
 
 def test_reaping_records_why_the_row_stopped(tmp_path):
     job = ytjob.save(tmp_path, live_job(tmp_path, supervisor=dead_pid()))
-    reaped = ytjob.reap(tmp_path, ytjob.read(job))
+    reaped = ytjob.reap(tmp_path, ytjob.read(job), held=set())
     assert reaped["status"] == "error"
     assert reaped["error"]
     assert ytjob.read(job)["status"] == "error", "must persist, not just report"

@@ -263,3 +263,33 @@ def test_a_claim_is_trusted_for_a_while_after_it_is_taken(state):
     directory = state / "yt"
     ytqueue.take_slot(directory, "yt-a", cap=1)
     assert ytqueue.running(directory) == 1
+
+
+def test_a_job_is_reaped_once_its_slot_goes_stale(state):
+    """The dashboard reads the two together: a record still claiming to run,
+    and nothing holding the slot that would be running it."""
+    made = job(state, "a", status="active")
+    made["supervisor"] = 999999
+    ytjob.save(state / "yt", made)
+    stale_claim(state / "yt", "yt-a")
+
+    held = set(ytqueue.claims(state / "yt"))
+    reaped = ytjob.reap(state / "yt", made, held)
+    assert reaped["status"] == "error"
+    assert "nothing is downloading" in reaped["error"]
+
+
+def test_a_job_holding_a_fresh_slot_is_left_alone(state):
+    made = job(state, "a", status="active")
+    made["supervisor"] = 999999
+    ytjob.save(state / "yt", made)
+    ytqueue.hold_slot(state / "yt", "yt-a")
+
+    held = set(ytqueue.claims(state / "yt"))
+    assert ytjob.reap(state / "yt", made, held)["status"] == "active"
+
+
+def test_a_job_waiting_for_a_slot_is_not_mistaken_for_a_dead_one(state):
+    """It has no claim because it has not started, not because it stopped."""
+    made = job(state, "a", status="queued")
+    assert ytjob.reap(state / "yt", made, set())["status"] == "queued"

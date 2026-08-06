@@ -22,6 +22,7 @@ from .. import (
     theme,
     youtube,
     ytjob,
+    ytqueue,
 )
 from ..theme import glyph
 from ..config import CONFIG_FILE, STATE_DIR, Config
@@ -739,7 +740,10 @@ class DlApp(App):
         Failures stay on the list until they are deleted: a job that vanished
         on error would look exactly like one that never started.
         """
-        jobs = [ytjob.reap(STATE_DIR / "yt", job) for job in ytjob.list_jobs(STATE_DIR / "yt")]
+        directory = STATE_DIR / "yt"
+        # Read once for the whole list rather than per job.
+        held = set(ytqueue.claims(directory))
+        jobs = [ytjob.reap(directory, job, held) for job in ytjob.list_jobs(directory)]
         return self._filter_jobs(
             [
                 job
