@@ -189,9 +189,13 @@ def main(argv: list[str]) -> int:
     state = Path(argv[0]).resolve().parent
     job = ytjob.read(Path(argv[0]))
     cfg = load()
+    # The slot was taken by whoever decided to start this, and that process
+    # may already be gone. Keeping it fresh from here is what holds it.
+    alive = ytqueue.heartbeat(state, job["id"])
     try:
         return _run(state, job, cfg)
     finally:
+        alive.set()
         # However this ended, including a crash: a slot never given back is
         # one fewer download for as long as dl runs.
         hand_over(state, job["id"], cfg.general.max_concurrent)
@@ -242,6 +246,8 @@ def _run(state: Path, job: dict, cfg) -> int:
     samples: deque[tuple[float, int]] = deque()
     while proc.poll() is None:
         time.sleep(POLL)
+        # Still here. A slot is held by being kept fresh, not by a pid.
+        ytqueue.touch(state, job["id"])
         done = ytjob.bytes_on_disk(scratch)
         current = ytjob.read(state / f"{job['id']}.json")
         if stand_down(current.get("status", "")):

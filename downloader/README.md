@@ -265,7 +265,10 @@ it. That is also why no size is shown: knowing it means extracting every video
 in turn, which is minutes of waiting before anything downloads.
 
 Collection videos skip the per-video duplicate check for the same reason. A
-file already on disk is left alone by yt-dlp rather than asked about.
+file already on disk is left alone by yt-dlp rather than asked about, so
+running a playlist again to pick up what has been added since costs nothing
+for the videos you already have: they finish at once, pointing at the file
+that is already there.
 
 `max_concurrent` holds these back too, so accepting a long collection starts
 that many and leaves the rest queued. Each one, as it finishes, starts the next

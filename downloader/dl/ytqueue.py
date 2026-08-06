@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -10,18 +11,71 @@ CLAIM = ".claim"
 LOCK = "scheduler.lock"
 STALE_LOCK = 10.0
 
+# A claim is held for as long as it keeps being touched. The supervisor
+# touches its own while it works, so a slot is proof of activity rather than
+# of a pid: a supervisor killed outright is never reaped by the dashboard that
+# spawned it, and a zombie answers kill(pid, 0) exactly as a live one does.
+HANDOVER = 30.0
+
 
 def claims(directory: Path) -> list[str]:
-    """Job ids that have a supervisor running, or about to.
+    """Job ids with a supervisor running, or about to be.
 
     Counted from files rather than job records: a supervisor that has just
     been spawned has not written its pid yet, and would otherwise look idle
     for long enough to be started twice.
+
+    Releasing happens on the way out, which a kill -9, a crash or a reboot
+    never reaches — and a slot held by nothing at all is one fewer download
+    for good. So a claim counts only while it is being kept fresh.
     """
+    held = []
     try:
-        return sorted(p.stem for p in directory.glob(f"*{CLAIM}"))
+        files = sorted(directory.glob(f"*{CLAIM}"))
     except OSError:
         return []
+    for path in files:
+        if _fresh(path):
+            held.append(path.stem)
+        else:
+            path.unlink(missing_ok=True)
+    return held
+
+
+def _fresh(path: Path) -> bool:
+    try:
+        return time.time() - path.stat().st_mtime < HANDOVER
+    except OSError:
+        return False
+
+
+def touch(directory: Path, job_id: str) -> None:
+    """Say the supervisor is still here."""
+    path = directory / f"{job_id}{CLAIM}"
+    try:
+        os.utime(path, None)
+    except OSError:
+        hold_slot(directory, job_id)
+
+
+def heartbeat(directory: Path, job_id: str):
+    """Keep the claim fresh for as long as this process lives.
+
+    A thread rather than a call in the download loop: a supervisor spends its
+    first minutes asking YouTube what it is about to fetch, and a slot given
+    up during the probe would be handed to something else while this one is
+    still coming.
+
+    Returns the stop signal; setting it ends the thread.
+    """
+    stop = threading.Event()
+
+    def beat():
+        while not stop.wait(HANDOVER / 3):
+            touch(directory, job_id)
+
+    threading.Thread(target=beat, daemon=True).start()
+    return stop
 
 
 def running(directory: Path) -> int:
