@@ -167,6 +167,7 @@ class DlApp(App):
         ("r", "retry", "retry"),
         ("s", "settings", "settings"),
         ("slash", "search", "search"),
+        ("escape", "clear_search", "clear search"),
         Binding("tab", "toggle_tab", "completed", priority=True),
         ("enter", "expand", "expand"),
         ("down", "cursor_down", "down"),
@@ -324,9 +325,19 @@ class DlApp(App):
         self._close_search()
 
     def on_search_cancelled(self, _event: SearchCancelled) -> None:
+        self.action_clear_search()
+        self._close_search()
+
+    def action_clear_search(self) -> None:
+        """Escape has to reach a committed filter too.
+
+        Once enter closes the box its own escape binding goes with it, so
+        without this the only way back to the full list is to reopen the box
+        and empty it by hand.
+        """
         self.search_query = ""
         self._reload_completed()
-        self._close_search()
+        self._repaint_search()
 
     def _close_search(self) -> None:
         if self.search_input is not None:

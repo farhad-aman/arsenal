@@ -79,6 +79,42 @@ async def test_escape_clears_the_filter_and_closes_the_box(cfg):
         assert sorted(names(app)) == ["a.iso", "b.mkv"]
 
 
+async def test_escape_clears_a_filter_committed_with_enter(cfg):
+    """The box carries its own escape binding, and enter unmounts the box. Only
+    testing escape while it is open leaves the committed filter unclearable."""
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await type_query(pilot, "iso")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.search_query == "iso"
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.search_query == ""
+        await app.refresh_data()
+        assert sorted(names(app)) == ["a.iso", "b.mkv"]
+        assert app.search_note.display is False
+
+
+async def test_escape_clears_a_committed_filter_on_the_completed_tab(cfg, state):
+    log = state / "history.jsonl"
+    for name in ("ubuntu.iso", "clip.mp4"):
+        history.append({"name": name, "status": "ok", "bytes": 1, "ts": 1, "path": ""}, log)
+    app = DlApp(cfg, FakeClient())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("tab")
+        await pilot.pause()
+        await type_query(pilot, "iso")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert len(app.completed.rows) == 1
+        await pilot.press("escape")
+        await pilot.pause()
+        assert len(app.completed.rows) == 2
+
+
 async def test_the_note_reports_matches_against_the_total(cfg):
     app = DlApp(cfg, FakeClient())
     async with app.run_test() as pilot:
