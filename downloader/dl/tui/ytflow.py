@@ -2,19 +2,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-import asyncio
-
 from textual.app import App
 from textual.widgets import Static
 
-from .. import duplicates, history, routing, ytjob, ytrun
+from .. import ytjob, ytrun
 from ..config import STATE_DIR, Config
 from ..format import human_bytes
 from ..theme import glyph, select
-from .modals import ConfirmModal, DuplicateModal
-from .picker import CancelAll, PickerScreen
 from .table import DownloadTable, row_from_job
-from .ytoptions import YouTubeOptionsScreen
+from .ytadd import YouTubeAdder, label_for
 
 JOB_DIR = "yt"
 
@@ -66,118 +62,16 @@ class YouTubeSetupApp(App):
         self.queued: list[dict] = []
         self.skipped: list[dict] = []
         self.cancelled = False
-        self.can_burn = ytjob.burn_in_available()
+        self.adder = YouTubeAdder(self, cfg, urls, proxy, spawn=spawn)
 
     def on_mount(self) -> None:
-        self._ask_options(0)
+        self.adder.start(self._finished)
 
-    def _ask_options(self, index: int) -> None:
-        if index >= len(self.urls):
-            self.exit()
-            return
-        url = self.urls[index]
-
-        def chosen(choices):
-            if choices is None:
-                self._ask_options(index + 1)
-                return
-            self._ask_where(index, choices)
-
-        self.push_screen(YouTubeOptionsScreen(_label(url), can_burn=self.can_burn), chosen)
-
-    def _ask_where(self, index: int, choices) -> None:
-        url = self.urls[index]
-        category = self.cfg.categories.get("video") or routing.OTHER
-        default_dir = category.dir
-
-        def picked(where):
-            if isinstance(where, CancelAll):
-                self.cancelled = True
-                self.exit()
-                return
-            job = ytjob.new_job(
-                url,
-                Path(where or default_dir),
-                choices,
-                self.cfg.proxy if routing.through_proxy(url, self.cfg, self.proxy) else "",
-                self.cfg.cookies_from,
-            )
-            self.run_worker(self._settle(index, job), exclusive=False)
-
-        self.push_screen(
-            PickerScreen(
-                filename=_label(url),
-                default_dir=default_dir,
-                category=category,
-                cfg=self.cfg,
-                records=history.tail(STATE_DIR / "history.jsonl", 200),
-                index=index,
-                total=len(self.urls),
-                theme=self.theme_data,
-            ),
-            picked,
-        )
-
-    async def _settle(self, index: int, job: dict) -> None:
-        """Find out what file this would write, and ask before treading on it.
-
-        Matching is on the destination alone: the same video at another
-        resolution shares a URL but is not the download already on disk.
-        """
-        try:
-            title, filename, total = await _probe_job(job, self.cfg.probe_timeout)
-        except ytrun.ProbeFailed as exc:
-            self._ask_blind(index, job, str(exc))
-            return
-        job["title"] = title
-        job["total"] = total
-        target = Path(filename) if filename else None
-        collision = duplicates.detect_target(target) if target else None
-        if collision is None:
-            self._queue(index, job)
-            return
-
-        def decided(choice: str | None) -> None:
-            if choice is None or choice == duplicates.SKIP:
-                self.skipped.append(job)
-                self._ask_options(index + 1)
-                return
-            if choice == duplicates.RENAME:
-                job["outname"] = duplicates.free_name(target).name
-            elif choice == duplicates.OVERWRITE:
-                job["outname"] = target.name
-                job["force"] = True
-            self._queue(index, job)
-
-        self.push_screen(
-            DuplicateModal(target.name, collision, human_bytes(collision.size)), decided
-        )
-
-    def _ask_blind(self, index: int, job: dict, reason: str) -> None:
-        """Without the probe there is no filename, so there is no way to know
-        whether this would land on something. Say so rather than queue it and
-        let yt-dlp silently decline to overwrite."""
-
-        def decided(go: bool) -> None:
-            if go:
-                self._queue(index, job)
-                return
-            self.skipped.append(job)
-            self._ask_options(index + 1)
-
-        self.push_screen(
-            ConfirmModal(
-                f"Could not check for an existing copy — {reason}.\n\n"
-                "Download anyway? If the file is already there, yt-dlp will "
-                "leave it alone."
-            ),
-            decided,
-        )
-
-    def _queue(self, index: int, job: dict) -> None:
-        spawn(job)
-        self.queued.append(job)
-        self._ask_options(index + 1)
+    def _finished(self, adder: YouTubeAdder) -> None:
+        self.queued = adder.queued
+        self.skipped = adder.skipped
+        self.cancelled = adder.cancelled
+        self.exit()
 
 
 CHECKING = "  asking YouTube what this is…"
@@ -249,13 +143,7 @@ def summarise(jobs: list[dict], icons: bool = True) -> list[str]:
     return lines
 
 
-async def _probe_job(job: dict, timeout: float) -> tuple[str, str, int]:
-    return await asyncio.to_thread(ytrun.probe, job, timeout)
-
-
-def _label(url: str) -> str:
-    tail = url.rstrip("/").rsplit("/", 1)[-1]
-    return tail.split("?v=")[-1][:60] or url
+_label = label_for
 
 
 def run_youtube(cfg: Config, urls: list[str], proxy: bool = False) -> tuple[list[str], bool]:

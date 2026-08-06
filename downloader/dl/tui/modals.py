@@ -20,6 +20,18 @@ def clipboard_text() -> str:
     return value if value.startswith(SCHEMES) else ""
 
 
+def write_clipboard(text: str) -> bool:
+    if not text:
+        return False
+    try:
+        done = subprocess.run(
+            ["pbcopy"], input=text, text=True, capture_output=True, check=False, timeout=2
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
 class AddUrlModal(ModalScreen[list[str] | None]):
     BINDINGS = [("escape", "dismiss_none", "cancel")]
 

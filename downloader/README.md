@@ -169,6 +169,7 @@ downloads queued later from anywhere. `-p` is the only thing that decides.
 | `s` | settings | | `tab` | Active ⇄ Completed |
 | `/` | search by name | | `enter` | expand row detail |
 | `S` | cycle sort order | | `R` | reverse it |
+| `y` | copy source URL | | `Y` | copy file path |
 | `↑` / `↓` | move cursor | | `q` | quit — downloads keep running |
 
 Speed limits apply to one download at a time — there is no global throttle, and
@@ -179,6 +180,16 @@ resumes them by stopping yt-dlp and picking the fragments back up, and `J`/`K`
 do not apply because they start immediately rather than queueing.
 
 Mouse works too: click to select and scroll.
+
+On the Completed tab, `r` downloads a finished entry again — through the same
+routing, proxy and duplicate checks a fresh download gets, not a bare re-add.
+`y` copies its source URL and `Y` its path; both work on the Active tab too.
+
+A YouTube entry cannot go back to aria2, which would fetch the watch page as
+HTML, so `r` opens the quality picker and the destination picker the way `dl
+<url>` does. Pasting a watch URL into `a` now does the same; a mixed batch
+sends the direct URLs to aria2 first and asks about the YouTube ones after,
+so two questions never stack on one another.
 
 ## Search
 
@@ -405,6 +416,8 @@ The suite covers behaviour; these are the things only an eye can check.
 - [ ] `/` filters as you type and the count under the list is right
 - [ ] With more rows than fit, `↑`/`↓` move the selection and the view follows
 - [ ] `S` reorders the list visibly and the bar underneath names the order
+- [ ] `y` on a finished download puts its URL on the clipboard
+- [ ] `r` on a finished YouTube entry opens the quality picker, not an aria2 add
 - [ ] `NO_COLOR=1 dl` emits no colour
 - [ ] Resize below 80, 66, and 50 columns — layout degrades, never scrolls sideways
 - [ ] macOS notification appears on completion

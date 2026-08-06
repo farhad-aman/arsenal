@@ -9,14 +9,14 @@ from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from .. import cli, config, duplicates, history, routing, search, sort, theme, ytjob
+from .. import cli, config, duplicates, history, routing, search, sort, theme, youtube, ytjob
 from ..theme import glyph
 from ..config import CONFIG_FILE, STATE_DIR, Config
 from ..format import cells, human_bytes
 from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import CompletedTable, record_path
-from . import ytflow
-from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal
+from . import ytadd, ytflow
+from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal, write_clipboard
 from .searchbar import INPUT_ID, NOTE_ID, SearchCancelled, SearchInput, SearchNote, empty_note
 from .status import StatusBar, stats_from
 from .table import DownloadTable, is_youtube_row, row_from_job, row_from_status
@@ -134,6 +134,7 @@ HINT_KEYS = (
     ("o", "open"),
     ("f", "finder"),
     ("s", "settings"),
+    ("y", "copy url"),
     ("/", "search"),
     ("S R", "sort"),
     ("tab", "done"),
@@ -144,6 +145,8 @@ DONE_KEYS = (
     ("f", "finder"),
     ("d", "delete"),
     ("↑↓", "move"),
+    ("r", "again"),
+    ("y", "copy url"),
     ("/", "search"),
     ("S R", "sort"),
     ("tab", "active"),
@@ -175,6 +178,8 @@ class DlApp(App):
         ("escape", "clear_search", "clear search"),
         ("S", "cycle_sort", "sort"),
         ("R", "flip_sort", "reverse sort"),
+        ("y", "copy_url", "copy url"),
+        ("Y", "copy_path", "copy path"),
         Binding("tab", "toggle_tab", "completed", priority=True),
         ("enter", "expand", "expand"),
         ("down", "cursor_down", "down"),
@@ -205,6 +210,7 @@ class DlApp(App):
         self.order = sort.DEFAULT
         self.done_order = sort.DONE_DEFAULT
         self.rows_raw: list = []
+        self.youtube_adder = None
         self.search_note = SearchNote(self.theme_data, id=NOTE_ID)
         self.search_input: SearchInput | None = None
 
@@ -561,7 +567,33 @@ class DlApp(App):
             return
         self.client.change_position(row.gid, offset, "POS_CUR")
 
+    def action_copy_url(self) -> None:
+        self._copy(self._selected_url(), "URL")
+
+    def action_copy_path(self) -> None:
+        path = self._selected_path()
+        self._copy(str(path) if path else "", "path")
+
+    def _copy(self, value: str, what: str) -> None:
+        if not value:
+            self.notify(f"no {what} to copy", severity="warning")
+            return
+        if write_clipboard(value):
+            self.notify(f"copied {what}")
+        else:
+            self.notify(f"could not reach the clipboard", severity="error")
+
+    def _selected_url(self) -> str:
+        if self.showing_completed:
+            record = self.completed.selected
+            return (record or {}).get("url", "") or ""
+        row = self._selected()
+        return row.url if row else ""
+
     def action_retry(self) -> None:
+        if self.showing_completed:
+            self._download_again()
+            return
         row = self._selected()
         if row is None or row.status != "error":
             return
@@ -628,9 +660,53 @@ class DlApp(App):
     def action_add(self) -> None:
         def queue(urls: list[str] | None) -> None:
             if urls:
-                self._queue_next(list(urls), 0)
+                self._accept(list(urls))
 
         self.push_screen(AddUrlModal(), queue)
+
+    def _accept(self, urls: list[str]) -> None:
+        """Split by what can fetch them.
+
+        aria2 handed a watch page downloads the HTML, so YouTube URLs go to
+        yt-dlp through its own questions instead.
+        """
+        watches = [url for url in urls if youtube.is_youtube(url)]
+        direct = [url for url in urls if not youtube.is_youtube(url)]
+        if not direct:
+            self._add_youtube(watches)
+            return
+        # After, not alongside: a duplicate question about a direct URL is
+        # already on screen, and the quality picker would land on top of it.
+        self._queue_next(
+            direct, 0, (lambda: self._add_youtube(watches)) if watches else None
+        )
+
+    def _add_youtube(self, urls: list[str]) -> None:
+        if self.youtube_adder is not None:
+            self.notify("already asking about a YouTube download", severity="warning")
+            return
+        adder = ytadd.YouTubeAdder(self, self.cfg, urls, state=STATE_DIR, spawn=ytflow.spawn)
+        self.youtube_adder = adder
+        adder.start(self._youtube_added)
+
+    def _youtube_added(self, adder) -> None:
+        self.youtube_adder = None
+        if adder.cancelled:
+            self.notify("cancelled — nothing queued")
+        elif adder.queued:
+            self.notify(f"queued {len(adder.queued)} to yt-dlp")
+        elif adder.skipped:
+            self.notify("skipped — already there")
+
+    def _download_again(self) -> None:
+        record = self.completed.selected
+        if record is None:
+            return
+        url = record.get("url", "") or ""
+        if not url:
+            self.notify("this entry has no source URL", severity="warning")
+            return
+        self._accept([url])
 
     def action_settings(self) -> None:
         from .settings import SettingsMenuScreen
@@ -661,10 +737,12 @@ class DlApp(App):
         except (Aria2Error, Aria2Unreachable):
             return []
 
-    def _queue_next(self, urls: list[str], index: int) -> None:
+    def _queue_next(self, urls: list[str], index: int, after=None) -> None:
         """Queue one URL at a time so a collision can be asked about before the
         next one is considered."""
         if index >= len(urls):
+            if after is not None:
+                after()
             return
         url = urls[index]
         name = routing.filename_from_url(url)
@@ -675,7 +753,7 @@ class DlApp(App):
         )
         if collision is None:
             self._queue_one(url, resolution, None, target)
-            self._queue_next(urls, index + 1)
+            self._queue_next(urls, index + 1, after)
             return
 
         def decided(choice: str | None) -> None:
@@ -683,7 +761,7 @@ class DlApp(App):
             batch to abandon."""
             if choice is not None:
                 self._queue_one(url, resolution, choice, target)
-            self._queue_next(urls, index + 1)
+            self._queue_next(urls, index + 1, after)
 
         self.push_screen(
             DuplicateModal(name or url, collision, human_bytes(collision.size)), decided
@@ -831,7 +909,7 @@ class DlApp(App):
             history.remove_entry(self.history_log, record)
             if choice == "disk" and path:
                 self._unlink(path)
-            self.completed.load(self.history_log)
+            self._reload_completed()
             self.notify(
                 f"removed {record.get('name', '')}"
                 + (" and its file" if choice == "disk" else " from the list")
