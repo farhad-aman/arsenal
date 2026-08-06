@@ -1,4 +1,5 @@
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -16,7 +17,7 @@ from .rpc import Aria2, Aria2Error, Aria2Unreachable
 # a second daemon came to exist beside the first, holding downloads nothing
 # could reach and nothing knew about.
 PORT = 6810
-LEGACY_PORTS = range(6810, 6820)
+
 # The paths travel as arguments rather than in the environment: nothing in the
 # environment can move dl's state, so there is nothing there for the shim to
 # set. A test daemon's hook still writes to the test's own directory because
@@ -231,12 +232,43 @@ def _spawn(cfg: Config, state: Path, port: int, secret: str) -> None:
     write_pid(state, process.pid)
 
 
-def listening(port: int) -> bool:
-    return not _bindable(port)
+_LISTEN_PORT = re.compile(r"--rpc-listen-port=(\d+)")
 
 
-def strays(state: Path) -> list[int]:
-    """Ports in the old range with something on them that is not our daemon.
+def aria2_processes() -> list[tuple[int, int]]:
+    """Every aria2 on the machine, as (pid, port).
+
+    Found by process rather than by scanning a range of ports: a range only
+    finds what happens to be inside it, and the whole problem is daemons that
+    ended up somewhere nobody recorded.
+    """
+    try:
+        out = subprocess.run(
+            ["ps", "-axww", "-o", "pid=,command="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    found = []
+    for line in out.splitlines():
+        if "aria2c" not in line:
+            continue
+        head, _, rest = line.strip().partition(" ")
+        port = _LISTEN_PORT.search(rest)
+        if not port:
+            continue
+        try:
+            found.append((int(head), int(port.group(1))))
+        except ValueError:
+            continue
+    return found
+
+
+def strays(state: Path) -> list[tuple[int, int]]:
+    """aria2 daemons this dl cannot talk to, as (pid, port).
 
     Older versions moved to the next free port when this one was busy, so a
     machine can be carrying daemons no state directory knows about.
@@ -246,38 +278,17 @@ def strays(state: Path) -> list[int]:
     # daemon an older version left on a port it wandered to. Those are retired
     # on the next start; a stray is one nothing can talk to.
     return [
-        port
-        for port in LEGACY_PORTS
-        if listening(port) and _probe(port, secret) != "ours"
+        (pid, port)
+        for pid, port in aria2_processes()
+        if _probe(port, secret) != "ours"
     ]
 
 
-def pid_on(port: int) -> int:
-    """aria2 masks its own process title, so the port is the only handle."""
-    try:
-        out = subprocess.run(
-            ["lsof", "-nP", "-iTCP:%d" % port, "-sTCP:LISTEN", "-t"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-        ).stdout
-    except (OSError, subprocess.SubprocessError):
-        return 0
-    first = out.split()
-    try:
-        return int(first[0]) if first else 0
-    except ValueError:
-        return 0
-
-
-def stop_strays(ports: list[int]) -> int:
+def stop_strays(found: list[tuple[int, int]]) -> int:
     stopped = 0
-    for port in ports:
-        pid = pid_on(port)
-        if pid:
-            _terminate(pid)
-            stopped += 1
+    for pid, _port in found:
+        _terminate(pid)
+        stopped += 1
     return stopped
 
 

@@ -221,14 +221,14 @@ def test_our_own_daemon_is_never_a_stray(cfg_and_state, monkeypatch):
     """An older version could leave ours on another port. It answers our
     secret, so it is retired properly rather than reported as a stranger."""
     cfg, state = cfg_and_state
-    monkeypatch.setattr(daemon, "listening", lambda port: port in (6811, 6813))
+    monkeypatch.setattr(daemon, "aria2_processes", lambda: [(11, 6811), (13, 6813)])
     monkeypatch.setattr(daemon, "_probe", lambda port, secret: "ours" if port == 6811 else "free")
-    assert daemon.strays(state) == [6813]
+    assert daemon.strays(state) == [(13, 6813)]
 
 
-def test_nothing_listening_means_no_strays(cfg_and_state, monkeypatch):
+def test_no_aria2_running_means_no_strays(cfg_and_state, monkeypatch):
     cfg, state = cfg_and_state
-    monkeypatch.setattr(daemon, "listening", lambda port: False)
+    monkeypatch.setattr(daemon, "aria2_processes", lambda: [])
     assert daemon.strays(state) == []
 
 

@@ -314,8 +314,8 @@ def cmd_strays(state, confirm=None) -> int:
         print("  no stray daemons")
         return 0
     print(f"  {len(found)} stray daemon{'s' if len(found) > 1 else ''}, unreachable by dl:")
-    for port in found:
-        print(f"    port {port}   (downloads it holds cannot be listed)")
+    for pid, port in found:
+        print(f"    pid {pid}  on port {port}   (downloads it holds cannot be listed)")
     ask = confirm if confirm is not None else _ask_yes
     if not ask("  stop them? [y/N] "):
         print("  left alone")
