@@ -167,7 +167,7 @@ downloads queued later from anywhere. `-p` is the only thing that decides.
 | `o` | open the file | | `f` | reveal in Finder |
 | `p` / `u` | pause all / resume all | | `d` | delete: from list, or disk too |
 | `s` | settings | | `tab` | Active ⇄ Completed |
-| `enter` | expand row detail | | | |
+| `/` | search by name | | `enter` | expand row detail |
 | `↑` / `↓` | move cursor | | `q` | quit — downloads keep running |
 
 Speed limits apply to one download at a time — there is no global throttle, and
@@ -178,6 +178,25 @@ resumes them by stopping yt-dlp and picking the fragments back up, and `J`/`K`
 do not apply because they start immediately rather than queueing.
 
 Mouse works too: click to select and scroll.
+
+## Search
+
+`/` filters both tabs by filename. Rows that do not match are hidden, so `J`,
+`K`, `space` and `d` act on the short list in front of you rather than on
+something scrolled off screen.
+
+Typing filters as you go. `enter` puts the keyboard back on the list and keeps
+the filter — the bar underneath shows what is on and how much it hides. `esc`
+clears it.
+
+One query covers both tabs and follows you across `tab`. Matching is
+case-insensitive, and normalises Unicode first: macOS stores filenames
+decomposed while your terminal sends what you typed composed, so without it a
+Persian or accented name would never match itself.
+
+On the Completed tab the search reads the whole of `history.jsonl`, not the last
+200 records the tab shows — a search that stopped at the cutoff would quietly
+miss older downloads.
 
 ## Settings
 
@@ -363,6 +382,7 @@ The suite covers behaviour; these are the things only an eye can check.
 - [ ] Header sparkline changes colour with throughput
 - [ ] Emoji render in your terminal font and columns stay aligned
 - [ ] `theme = "mono"` keeps alignment with no emoji
+- [ ] `/` filters as you type and the count under the list is right
 - [ ] `NO_COLOR=1 dl` emits no colour
 - [ ] Resize below 80, 66, and 50 columns — layout degrades, never scrolls sideways
 - [ ] macOS notification appears on completion

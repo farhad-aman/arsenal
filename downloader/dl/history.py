@@ -2,6 +2,8 @@ import json
 import os
 from pathlib import Path
 
+from . import search
+
 _BLOCK = 8192
 
 
@@ -38,6 +40,29 @@ def remove_entry(path: Path, record: dict) -> bool:
         temp.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
         temp.replace(path)
     return removed
+
+
+def find(path: Path, query: str, n: int) -> list[dict]:
+    """Matching records from the whole log, newest n kept, oldest first.
+
+    tail() reads backwards from the end and stops, so it cannot answer a search
+    — a name older than the last n records would never be seen.
+    """
+    if n <= 0 or not path.exists():
+        return []
+    if not search.active(query):
+        return tail(path, n)
+
+    found: list[dict] = []
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for raw in fh:
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict) and search.matches(parsed.get("name") or "", query):
+                found.append(parsed)
+    return found[-n:]
 
 
 def tail(path: Path, n: int) -> list[dict]:

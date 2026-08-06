@@ -9,7 +9,7 @@ from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from .. import cli, config, duplicates, history, routing, theme, ytjob
+from .. import cli, config, duplicates, history, routing, search, theme, ytjob
 from ..theme import glyph
 from ..config import CONFIG_FILE, STATE_DIR, Config
 from ..format import cells, human_bytes
@@ -17,6 +17,7 @@ from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import CompletedTable, record_path
 from . import ytflow
 from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal
+from .searchbar import INPUT_ID, NOTE_ID, SearchCancelled, SearchInput, SearchNote, empty_note
 from .status import StatusBar, stats_from
 from .table import DownloadTable, is_youtube_row, row_from_job, row_from_status
 
@@ -64,6 +65,8 @@ Screen { layout: vertical; }
 StatusBar { height: 1; dock: top; padding: 0 1; }
 #body { height: 1fr; padding: 0 1; }
 #hint { dock: bottom; height: 1; padding: 0 1; color: $dl-dim; }
+#search-note { dock: bottom; height: 1; padding: 0 1; }
+#search-input { dock: bottom; height: 3; margin: 0 1; }
 
 AddUrlModal, SpeedLimitModal, ConfirmModal, DeleteModal, PickerScreen, DuplicateModal,
 SettingsMenuScreen, FormScreen, ProxyScreen, HeadersScreen, CategoriesScreen {
@@ -128,6 +131,7 @@ HINT_KEYS = (
     ("o", "open"),
     ("f", "finder"),
     ("s", "settings"),
+    ("/", "search"),
     ("tab", "done"),
     ("q", "quit"),
 )
@@ -136,6 +140,7 @@ DONE_KEYS = (
     ("f", "finder"),
     ("d", "delete"),
     ("↑↓", "move"),
+    ("/", "search"),
     ("tab", "active"),
     ("q", "quit"),
 )
@@ -161,6 +166,7 @@ class DlApp(App):
         ("u", "resume_all", "resume all"),
         ("r", "retry", "retry"),
         ("s", "settings", "settings"),
+        ("slash", "search", "search"),
         Binding("tab", "toggle_tab", "completed", priority=True),
         ("enter", "expand", "expand"),
         ("down", "cursor_down", "down"),
@@ -184,6 +190,10 @@ class DlApp(App):
         self.completed = CompletedTable(self.theme_data, id="completed")
         self.hint_text = HINT
         self.hint = Static(render_hint(HINT_KEYS, self.theme_data), id="hint", markup=True)
+        self.search_query = ""
+        self.search_total = 0
+        self.search_note = SearchNote(self.theme_data, id=NOTE_ID)
+        self.search_input: SearchInput | None = None
 
     def get_css_variables(self) -> dict[str, str]:
         """Textual's stock palette is blue and orange, which is why the modals
@@ -210,6 +220,7 @@ class DlApp(App):
             yield self.table
             yield self.completed
         yield self.hint
+        yield self.search_note
 
     def _repaint_hint(self) -> None:
         pairs = DONE_KEYS if self.showing_completed else HINT_KEYS
@@ -226,16 +237,21 @@ class DlApp(App):
         self._repaint_hint()
         ytjob.sweep(STATE_DIR / "yt", self.history_log)
         self.completed.display = False
+        self.search_note.display = False
         self.set_interval(0.5, self.refresh_data)
         self.set_interval(0.1, self.table.refresh_view)
         self.call_after_refresh(self.refresh_data)
 
     def check_action(self, action: str, parameters: tuple) -> bool:
         """Priority bindings are resolved app-first, so a dashboard key would beat
-        the modal on top of it. Standing down lets the modal's binding run."""
+        the modal on top of it. Standing down lets the modal's binding run.
+
+        The same applies while the search box is open: `d` there is a letter
+        being typed, not the delete key.
+        """
         if isinstance(self.screen, ModalScreen):
             return False
-        return True
+        return not self.searching
 
     def reload_config(self, cfg: Config) -> None:
         """Adopt a freshly read config.
@@ -247,7 +263,7 @@ class DlApp(App):
         was = self.cfg
         self.cfg = cfg
         self.theme_data = theme.select(cfg)
-        for widget in (self.status, self.table, self.completed):
+        for widget in (self.status, self.table, self.completed, self.search_note):
             widget.theme_data = self.theme_data
         self.table.refresh_view()
         self._repaint_hint()
@@ -274,6 +290,65 @@ class DlApp(App):
             self.proxied[gid] = bool(options.get("all-proxy") or options.get("http-proxy"))
         self.proxied = {gid: flag for gid, flag in self.proxied.items() if gid in live}
 
+    @property
+    def searching(self) -> bool:
+        return self.search_input is not None
+
+    def action_search(self) -> None:
+        """Mounted only while it is open.
+
+        A hidden Input that lives in the DOM takes auto-focus and then eats d,
+        l and u as typed text. Turning auto-focus off app-wide would reach the
+        modals too, whose inputs do need it.
+        """
+        if self.searching:
+            return
+        self.search_input = SearchInput(
+            value=self.search_query, placeholder="filter by name", id=INPUT_ID
+        )
+        self.mount(self.search_input)
+        self.search_input.focus()
+        self._repaint_search()
+
+    def on_input_changed(self, event) -> None:
+        if event.input.id != INPUT_ID:
+            return
+        self.search_query = event.value
+        self._reload_completed()
+        self._repaint_search()
+
+    def on_input_submitted(self, event) -> None:
+        """Enter puts the keyboard back on the list without dropping the filter."""
+        if event.input.id != INPUT_ID:
+            return
+        self._close_search()
+
+    def on_search_cancelled(self, _event: SearchCancelled) -> None:
+        self.search_query = ""
+        self._reload_completed()
+        self._close_search()
+
+    def _close_search(self) -> None:
+        if self.search_input is not None:
+            self.search_input.remove()
+            self.search_input = None
+        self.set_focus(None)
+        self._repaint_search()
+
+    def _repaint_search(self) -> None:
+        on = search.active(self.search_query)
+        self.search_note.display = on
+        if not on:
+            return
+        if self.showing_completed:
+            self.search_note.show(self.search_query, len(self.completed.rows), None)
+        else:
+            self.search_note.show(self.search_query, len(self.table.rows), self.search_total)
+
+    def _reload_completed(self) -> None:
+        if self.showing_completed:
+            self.completed.load(self.history_log, self.search_query)
+
     def _filter_items(self, items: list[dict]) -> list[dict]:
         return items
 
@@ -296,11 +371,19 @@ class DlApp(App):
             for item in items
         ]
         rows += [row_from_job(job, self.cfg) for job in self._youtube_jobs()]
-        self.table.set_rows(rows)
+        self.search_total = len(rows)
+        # Before set_rows, which is what draws the placeholder. Setting it after
+        # leaves the message a frame behind the query it is describing.
+        # Before set_rows, which is what draws the placeholder. Setting it after
+        # leaves the message a frame behind the query it is describing.
+        if search.active(self.search_query):
+            self.table.placeholder = empty_note(self.search_query, self.theme_data)
+        elif self.splash_when_empty and not self.showing_completed:
+            self.table.placeholder = splash(self.theme_data)
+        self.table.set_rows(search.keep(rows, self.search_query, lambda row: row.name))
         elapsed = int(time.monotonic() - self.started)
         self.status.update_stats(stats_from(stat, elapsed))
-        if self.splash_when_empty and not self.showing_completed:
-            self.table.placeholder = splash(self.theme_data)
+        self._repaint_search()
         self._after_refresh(items)
 
     def _selected(self):
@@ -455,7 +538,8 @@ class DlApp(App):
         self.hint_text = HINT_DONE if self.showing_completed else HINT
         self._repaint_hint()
         if self.showing_completed:
-            self.completed.load(self.history_log)
+            self.completed.load(self.history_log, self.search_query)
+        self._repaint_search()
 
     def action_add(self) -> None:
         def queue(urls: list[str] | None) -> None:

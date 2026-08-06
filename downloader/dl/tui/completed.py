@@ -43,6 +43,7 @@ class CompletedTable(Static):
         self.theme_data = theme
         self.rows: list[dict] = []
         self.cursor = 0
+        self.search_query = ""
 
     @property
     def selected(self) -> dict | None:
@@ -50,10 +51,11 @@ class CompletedTable(Static):
             return None
         return self.rows[min(self.cursor, len(self.rows) - 1)]
 
-    def load(self, log: Path) -> None:
+    def load(self, log: Path, query: str = "") -> None:
         from .. import history
 
-        self.rows = history.tail(log, MAX_ROWS)[::-1]
+        self.search_query = query
+        self.rows = history.find(log, query, MAX_ROWS)[::-1]
         self.cursor = min(self.cursor, max(len(self.rows) - 1, 0))
         self.refresh_view()
 
@@ -65,7 +67,13 @@ class CompletedTable(Static):
 
     def refresh_view(self) -> None:
         if not self.rows:
-            self.update("  (nothing finished yet)")
+            from .searchbar import empty_note
+
+            self.update(
+                empty_note(self.search_query, self.theme_data)
+                if self.search_query
+                else "  (nothing finished yet)"
+            )
             return
         now = int(time.time())
         self.update(
