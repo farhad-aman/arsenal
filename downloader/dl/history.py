@@ -46,11 +46,36 @@ def remove_entry(path: Path, record: dict) -> bool:
     return removed
 
 
+def _lines_backwards(path: Path):
+    """Lines from the end of the file towards the start.
+
+    A search wants the newest matches, so reading forwards means parsing the
+    whole log to throw away all but the last few of it.
+    """
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        remaining = fh.tell()
+        carry = b""
+        while remaining > 0:
+            step = min(_BLOCK, remaining)
+            remaining -= step
+            fh.seek(remaining)
+            pieces = (fh.read(step) + carry).split(b"\n")
+            # The first piece may be half a line, finished by the block before.
+            carry = pieces[0]
+            for piece in reversed(pieces[1:]):
+                if piece:
+                    yield piece
+        if carry:
+            yield carry
+
+
 def find(path: Path, query: str, n: int) -> list[dict]:
     """Matching records from the whole log, newest n kept, oldest first.
 
     tail() reads backwards from the end and stops, so it cannot answer a search
-    — a name older than the last n records would never be seen.
+    — a name older than the last n records would never be seen. This reads
+    backwards too, but keeps going until it has n matches or runs out of file.
     """
     if n <= 0 or not path.exists():
         return []
@@ -58,15 +83,17 @@ def find(path: Path, query: str, n: int) -> list[dict]:
         return tail(path, n)
 
     found: list[dict] = []
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        for raw in fh:
-            try:
-                parsed = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(parsed, dict) and search.matches(parsed.get("name") or "", query):
-                found.append(parsed)
-    return found[-n:]
+    for raw in _lines_backwards(path):
+        try:
+            parsed = json.loads(raw.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict) and search.matches(parsed.get("name") or "", query):
+            found.append(parsed)
+            if len(found) >= n:
+                break
+    found.reverse()
+    return found
 
 
 def tail(path: Path, n: int) -> list[dict]:

@@ -127,3 +127,58 @@ def test_find_ignores_records_without_a_name(tmp_path):
     history.append({"bytes": 1}, p)
     history.append({"name": "ubuntu.iso"}, p)
     assert [r["name"] for r in history.find(p, "ubuntu", 10)] == ["ubuntu.iso"]
+
+
+def test_find_stops_once_it_has_enough(tmp_path, monkeypatch):
+    """A search satisfied by recent downloads must not read the whole log.
+
+    Reading forwards meant every keystroke in the search box parsed the entire
+    history — 22ms on a 20k-line log, on every letter typed.
+    """
+    p = tmp_path / "h.jsonl"
+    for i in range(5000):
+        history.append({"name": f"old-{i}.bin"}, p)
+    for i in range(3):
+        history.append({"name": f"recent-{i}.iso"}, p)
+
+    parsed = {"n": 0}
+    real_loads = json.loads
+
+    def counting(raw, *a, **k):
+        parsed["n"] += 1
+        return real_loads(raw, *a, **k)
+
+    monkeypatch.setattr(history.json, "loads", counting)
+    got = history.find(p, "recent", 3)
+    assert [r["name"] for r in got] == ["recent-0.iso", "recent-1.iso", "recent-2.iso"]
+    assert parsed["n"] < 100, f"parsed {parsed['n']} lines to find 3 at the end"
+
+
+def test_find_still_reaches_the_start_when_it_has_to(tmp_path):
+    """Early exit must not turn into 'only looks at the end'."""
+    p = tmp_path / "h.jsonl"
+    history.append({"name": "the-only-match.iso"}, p)
+    for i in range(5000):
+        history.append({"name": f"filler-{i}.bin"}, p)
+    assert [r["name"] for r in history.find(p, "only-match", 10)] == ["the-only-match.iso"]
+
+
+def test_find_handles_a_log_with_no_trailing_newline(tmp_path):
+    p = tmp_path / "h.jsonl"
+    p.write_text(json.dumps({"name": "a.iso"}) + "\n" + json.dumps({"name": "b.iso"}))
+    assert [r["name"] for r in history.find(p, "iso", 10)] == ["a.iso", "b.iso"]
+
+
+def test_find_handles_a_record_larger_than_one_read_block(tmp_path):
+    p = tmp_path / "h.jsonl"
+    history.append({"name": "x" * 20000 + ".iso"}, p)
+    history.append({"name": "small.iso"}, p)
+    assert len(history.find(p, "iso", 10)) == 2
+
+
+def test_find_survives_undecodable_bytes(tmp_path):
+    p = tmp_path / "h.jsonl"
+    with open(p, "wb") as fh:
+        fh.write(b'{"name": "\xff\xfe bad.iso"}\n')
+        fh.write(json.dumps({"name": "good.iso"}).encode() + b"\n")
+    assert [r["name"] for r in history.find(p, "good", 10)] == ["good.iso"]
