@@ -18,7 +18,7 @@ from ..format import (
     rpad,
     sparkline,
 )
-from ..routing import OTHER, resolve
+from ..routing import OTHER, resolve, torrent_destination
 from ..theme import Theme, glyph, icon_for, ramp_color
 
 
@@ -73,7 +73,13 @@ def row_from_status(item: dict, cfg: Config, proxied: bool = False, started: int
     total = int(item.get("totalLength", 0) or 0)
     done = int(item.get("completedLength", 0) or 0)
     speed = int(item.get("downloadSpeed", 0) or 0)
-    category = resolve(url, name, cfg).category if name or url else OTHER
+    category = (
+        torrent_destination(cfg).category
+        if torrent.is_torrent_status(item)
+        else resolve(url, name, cfg).category
+        if name or url
+        else OTHER
+    )
     eta = (total - done) // speed if speed > 0 and total > done else -1
     return Row(
         gid=item.get("gid", ""),

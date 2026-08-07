@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from . import torrent
 from .config import Category, Config
 
 OTHER = Category(name="other", dir=Path("."), ext=(), icon="📥", hue="#8a8a8a")
@@ -95,11 +96,31 @@ def _by_extension(filename: str, cfg: Config) -> Category | None:
     return None
 
 
+TORRENTS = "torrents"
+TORRENT_DIR = "Torrents"
+
+
+def torrent_destination(cfg: Config) -> Resolution:
+    """Where anything from a torrent lands, whatever it turns out to hold.
+
+    A magnet says nothing about its contents until the swarm answers, and by
+    then the download has a directory. Falls back to a folder beside the
+    others so deleting the category cannot leave a torrent with nowhere.
+    """
+    category = cfg.categories.get(TORRENTS)
+    if category is not None:
+        return Resolution(category.dir, category)
+    where = cfg.general.default_dir / TORRENT_DIR
+    return Resolution(where, Category(TORRENTS, where, ("torrent",), "🧲", "#7f8fa6"))
+
+
 def resolve(
     url: str, filename: str, cfg: Config, explicit_dir: Path | None = None
 ) -> Resolution:
     if explicit_dir is not None:
         return Resolution(Path(explicit_dir).expanduser(), OTHER)
+    if torrent.is_torrent(url):
+        return torrent_destination(cfg)
     name = filename or filename_from_url(url)
     category = _by_domain(url, cfg) or _by_extension(name, cfg)
     if category is None:

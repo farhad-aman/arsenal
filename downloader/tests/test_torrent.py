@@ -235,38 +235,6 @@ def _complete(tmp_path, name="debian.iso", where=None):
     return landed
 
 
-def test_a_finished_torrent_moves_into_its_category(tmp_path, sandbox_cfg):
-    """The destination was picked from the .torrent's own filename, before
-    anyone knew what was inside. Routing can only happen once it is known."""
-    from dl import config, hook
-
-    cfg = config.replace(sandbox_cfg, general=config.replace(sandbox_cfg.general, default_dir=tmp_path))
-    landed = _complete(tmp_path)
-    final = hook.relocate(landed, cfg, "https://e.com/debian.iso", by_content=True)
-    assert final.parent == cfg.categories["iso"].dir
-    assert final.exists() and not landed.exists()
-
-
-def test_a_torrent_pinned_with_dash_d_stays_where_it_was_put(tmp_path, sandbox_cfg):
-    from dl import config, hook
-
-    pinned = tmp_path / "elsewhere"
-    cfg = config.replace(sandbox_cfg, general=config.replace(sandbox_cfg.general, default_dir=tmp_path))
-    landed = _complete(tmp_path, where=pinned)
-    final = hook.relocate(landed, cfg, "https://e.com/debian.iso", by_content=True)
-    assert final == landed and landed.exists()
-
-
-def test_a_torrent_folder_with_nothing_to_route_on_stays_put(tmp_path, sandbox_cfg):
-    from dl import config, hook
-
-    cfg = config.replace(sandbox_cfg, general=config.replace(sandbox_cfg.general, default_dir=tmp_path))
-    folder = tmp_path / "Some Album"
-    folder.mkdir()
-    final = hook.relocate(folder, cfg, "", by_content=True)
-    assert final == folder and folder.exists()
-
-
 def test_a_plain_download_still_uses_the_url_to_decide_it_was_not_pinned(tmp_path, sandbox_cfg):
     """The existing rule, unchanged: an http download that is not where its own
     URL would have put it was pinned."""
@@ -635,3 +603,107 @@ async def test_delete_from_disk_clears_the_torrent_too(sandbox_cfg, tmp_path, mo
         await pilot.pause()
         await pilot.pause()
     assert not blob.exists(), "the .torrent survived a delete from disk"
+
+
+def test_a_magnet_goes_to_the_torrents_folder(sandbox_cfg):
+    from dl import routing
+
+    where = routing.resolve(MAGNET, "", sandbox_cfg)
+    assert where.path == sandbox_cfg.categories["torrents"].dir
+    assert where.category.name == "torrents"
+
+
+def test_a_torrent_url_goes_to_the_torrents_folder(sandbox_cfg):
+    from dl import routing
+
+    where = routing.resolve("https://e.com/thing.torrent", "", sandbox_cfg)
+    assert where.path == sandbox_cfg.categories["torrents"].dir
+
+
+def test_a_local_torrent_goes_to_the_torrents_folder(tmp_path, sandbox_cfg):
+    from dl import routing
+
+    blob = tmp_path / "x.torrent"
+    blob.write_bytes(b"d4:infoe")
+    assert routing.resolve(str(blob), "", sandbox_cfg).path == sandbox_cfg.categories["torrents"].dir
+
+
+def test_a_plain_download_is_unaffected_by_any_of_this(sandbox_cfg):
+    from dl import routing
+
+    assert routing.resolve("https://e.com/a.iso", "", sandbox_cfg).category.name == "iso"
+
+
+def test_dash_d_still_beats_the_torrents_folder(tmp_path, sandbox_cfg):
+    from dl import routing
+
+    assert routing.resolve(MAGNET, "", sandbox_cfg, explicit_dir=tmp_path).path == tmp_path
+
+
+def test_a_config_naming_a_torrents_category_uses_its_folder(tmp_path, sandbox_cfg):
+    from dl import config, routing
+
+    cats = dict(sandbox_cfg.categories)
+    cats["torrents"] = config.Category("torrents", tmp_path / "Swarm", ("torrent",), "🧲", "#888888")
+    cfg = config.replace(sandbox_cfg, categories=cats)
+    assert routing.torrent_destination(cfg).path == tmp_path / "Swarm"
+
+
+def test_a_config_without_one_still_gets_a_torrents_folder(sandbox_cfg):
+    """Deleting a category is allowed, and a torrent still needs somewhere."""
+    from dl import config, routing
+
+    cats = {n: c for n, c in sandbox_cfg.categories.items() if n != "torrents"}
+    cfg = config.replace(sandbox_cfg, categories=cats)
+    assert routing.torrent_destination(cfg).path == cfg.general.default_dir / "Torrents"
+
+
+def test_the_defaults_carry_a_torrents_category():
+    from dl import config
+
+    assert "torrents" in config.DEFAULT_CATEGORIES
+    assert config.DEFAULT_CATEGORIES["torrents"].dir.name == "Torrents"
+    assert "[categories.torrents]" in config.DEFAULT_TOML
+
+
+def test_a_finished_torrent_is_not_moved_out_of_the_torrents_folder(tmp_path, sandbox_cfg):
+    """It was asked to live there, whatever it turned out to contain."""
+    from dl import config, hook
+
+    where = tmp_path / "Torrents"
+    where.mkdir()
+    landed = where / "debian.iso"
+    landed.write_bytes(b"x" * 10)
+    cats = dict(sandbox_cfg.categories)
+    cats["torrents"] = config.Category("torrents", where, ("torrent",), "🧲", "#888888")
+    cfg = config.replace(sandbox_cfg, categories=cats)
+
+    status = {"bittorrent": {"mode": "single", "info": {"name": "debian.iso"}}}
+    assert hook.final_path(landed, cfg, "https://e.com/debian.iso", status) == landed
+    assert landed.exists()
+
+
+def test_a_finished_plain_download_still_moves(tmp_path, sandbox_cfg):
+    from dl import config, hook
+
+    cfg = config.replace(
+        sandbox_cfg, general=config.replace(sandbox_cfg.general, default_dir=tmp_path)
+    )
+    landed = tmp_path / "debian.iso"
+    landed.write_bytes(b"x" * 10)
+    # A URL with no filename in it routes to the default folder, which is
+    # where this is; the real name is what sends it on to iso.
+    final = hook.final_path(landed, cfg, "https://e.com/get?id=7", {})
+    assert final.parent == cfg.categories["iso"].dir
+
+
+def test_a_torrent_row_is_labelled_a_torrent(sandbox_cfg):
+    from dl.tui.table import row_from_status
+
+    item = {
+        "gid": "g1", "status": "active", "totalLength": "10", "completedLength": "1",
+        "downloadSpeed": "0", "connections": "1", "dir": "/tmp/Torrents",
+        "files": [{"path": "/tmp/Torrents/debian.iso", "uris": []}],
+        "bittorrent": {"mode": "single", "info": {"name": "debian.iso"}},
+    }
+    assert row_from_status(item, sandbox_cfg).category.name == "torrents"

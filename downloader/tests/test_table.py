@@ -342,8 +342,9 @@ def test_a_magnet_still_fetching_its_details_says_so(cfg):
     assert "torrent" in row.name.lower()
 
 
-def test_a_single_file_torrent_still_routes_on_its_extension(cfg):
-    assert row_from_status(bt(), cfg).category.name == "iso"
+def test_a_torrent_row_is_labelled_a_torrent(cfg):
+    """Everything from a torrent lives in one folder, so the label follows."""
+    assert row_from_status(bt(), cfg).category.name == "torrents"
 
 
 def test_a_plain_download_is_unaffected(cfg):

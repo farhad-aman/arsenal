@@ -111,6 +111,7 @@ DEFAULT_CATEGORIES: dict[str, Category] = {
     "apps": _cat("apps", "~/Downloads/Apps", ["pkg", "app", "deb", "rpm", "exe", "msi"], "⚙️", "#5ac26a"),
     "models": _cat("models", "~/Downloads/Models", ["safetensors", "gguf", "ckpt", "pt", "pth", "bin"], "🧠", "#9b7bea"),
     "code": _cat("code", "~/Downloads/Code", ["patch", "diff", "whl", "jar"], "💻", "#e58a3c"),
+    "torrents": _cat("torrents", "~/Downloads/Torrents", ["torrent"], "🧲", "#7f8fa6"),
 }
 
 DEFAULT_DOMAINS: dict[str, str] = {"huggingface.co": "models", "*.github.com": "code"}
@@ -318,6 +319,14 @@ dir  = "~/Downloads/Code"
 ext  = ["patch", "diff", "whl", "jar"]
 icon = "💻"
 hue  = "#e58a3c"
+
+# Everything from a torrent or a magnet lands here, whatever it turns out to
+# hold. The .torrent itself is removed once the download it describes is done.
+[categories.torrents]
+dir  = "~/Downloads/Torrents"
+ext  = ["torrent"]
+icon = "🧲"
+hue  = "#7f8fa6"
 
 [domains]
 "huggingface.co" = "models"
