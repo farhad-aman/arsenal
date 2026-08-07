@@ -3,7 +3,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import checksum, duplicates, routing, search, theme, torrent
+from . import duplicates, routing, search, theme, torrent
 from .config import Config
 from .destinations import ensure_writable
 from .format import human_bytes, human_speed

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import checksum, config, daemon, history, routing, torrent
 from .config import STATE_DIR, Config
-from .rpc import Aria2, Aria2Error, Aria2Unreachable
+from .rpc import Aria2
 
 
 def _first_file(status: dict) -> dict:
