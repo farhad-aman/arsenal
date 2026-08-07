@@ -209,8 +209,33 @@ class PreviewApp(DlApp):
     def _after_refresh(self, items: list[dict]) -> None:
         if self.picking or items:
             return
+        if self._follow_handoff():
+            return
         self.results = self._collect_results()
         self.exit()
+
+    def _follow_handoff(self) -> bool:
+        """Take up the download a torrent handed off to.
+
+        A .torrent or a magnet finishes in seconds and aria2 starts a
+        different gid for the transfer it describes. Watching only what was
+        queued meant the preview closed at the moment the download began,
+        and dl had to be opened again to see it.
+        """
+        moved = False
+        for gid in list(self.watch):
+            try:
+                children = self.client.tell_status(gid).get("followedBy") or []
+            except (Aria2Error, Aria2Unreachable):
+                continue
+            if not children:
+                continue
+            # The .torrent is not the download, so it stops being watched
+            # and stops being reported as a result.
+            self.watch.discard(gid)
+            self.watch.update(children)
+            moved = True
+        return moved
 
     def _collect_results(self) -> list[dict]:
         collected = []

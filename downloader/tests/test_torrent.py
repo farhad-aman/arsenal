@@ -446,3 +446,99 @@ async def test_the_preview_survives_a_daemon_that_went_away(sandbox_cfg, tmp_pat
         app._start_queue()
         await pilot.pause()
     assert app.failed
+
+
+async def test_the_preview_follows_a_torrent_into_its_transfer(sandbox_cfg, tmp_path, monkeypatch):
+    """A .torrent or a magnet completes in seconds and aria2 starts a different
+    gid for the actual download. The preview closed on the first one, so it
+    shut just as the transfer began and you had to run dl again."""
+    from dl.tui import preview as preview_module
+    from dl.tui.preview import PreviewApp
+
+    monkeypatch.setattr(preview_module, "STATE_DIR", tmp_path)
+
+    class Handing:
+        """The .torrent is gone from the queue; the transfer it started is on it."""
+
+        def __init__(self):
+            self.handed = False
+
+        def tell_active(self):
+            if not self.handed:
+                return []
+            return [{"gid": "child", "status": "active", "following": "parent",
+                     "totalLength": "100", "completedLength": "10", "downloadSpeed": "5",
+                     "connections": "8", "files": [{"path": "/tmp/x.iso", "uris": []}]}]
+
+        def tell_waiting(self):
+            return []
+
+        def get_global_stat(self):
+            return {"downloadSpeed": "0", "numActive": "0", "numWaiting": "0", "numStopped": "0"}
+
+        def get_option(self, gid):
+            return {}
+
+        def tell_status(self, gid):
+            if gid == "parent":
+                self.handed = True
+                return {"gid": "parent", "status": "complete", "followedBy": ["child"],
+                        "files": [{"path": "/tmp/x.torrent", "uris": []}]}
+            return {"gid": "child", "status": "active", "following": "parent",
+                    "files": [{"path": "/tmp/x.iso", "uris": []}]}
+
+    app = PreviewApp(sandbox_cfg, Handing(), gids=["parent"])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.refresh_data()
+        await pilot.pause()
+        assert "child" in app.watch, "the transfer it handed off to was not picked up"
+        assert "parent" not in app.watch, "the .torrent itself is not the download"
+        assert app.is_running, "the preview closed as the download started"
+
+
+def test_the_torrent_file_goes_when_the_download_finishes(tmp_path):
+    """Fetching a .torrent over http leaves it in the destination beside the
+    thing it described, which nobody asked to download."""
+    from dl import hook
+
+    blob = tmp_path / "debian.torrent"
+    blob.write_bytes(b"d4:infoe")
+
+    class Client:
+        def tell_status(self, gid):
+            return {"gid": "parent", "files": [{"path": str(blob), "uris": []}]}
+
+    assert hook.drop_source_torrent(Client(), {"following": "parent"}) is True
+    assert not blob.exists()
+
+
+def test_a_magnets_placeholder_is_not_mistaken_for_a_torrent_file(tmp_path):
+    from dl import hook
+
+    class Client:
+        def tell_status(self, gid):
+            return {"gid": "p", "files": [{"path": str(tmp_path / "[METADATA]481b"), "uris": []}]}
+
+    assert hook.drop_source_torrent(Client(), {"following": "p"}) is False
+
+
+def test_a_download_that_followed_nothing_has_no_torrent_to_drop():
+    from dl import hook
+
+    class Client:
+        def tell_status(self, gid):
+            raise AssertionError("should not be asked")
+
+    assert hook.drop_source_torrent(Client(), {}) is False
+
+
+def test_a_vanished_parent_is_quiet(tmp_path):
+    from dl import hook
+    from dl.rpc import Aria2Error
+
+    class Client:
+        def tell_status(self, gid):
+            raise Aria2Error(1, "not found")
+
+    assert hook.drop_source_torrent(Client(), {"following": "gone"}) is False
