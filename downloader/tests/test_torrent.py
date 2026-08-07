@@ -311,22 +311,20 @@ def test_a_daemon_with_the_arguments_it_wanted_is_left_alone(tmp_path, monkeypat
         def tell_waiting(self):
             return []
 
-    assert daemon.restart_if_stale(cfg, tmp_path, "s", Idle()) is False
+    assert daemon.stop_if_stale(cfg, tmp_path, "s", Idle()) is False
     assert restarted == []
 
 
-def test_a_daemon_started_before_a_setting_existed_is_restarted(tmp_path, monkeypatch):
+def test_a_daemon_started_before_a_setting_existed_is_stopped(tmp_path, monkeypatch):
     """The DHT cannot be turned on over RPC, so a daemon that predates it never
-    gets it however long dl runs."""
+    gets it however long dl runs. Stopping it is all this does — starting the
+    replacement belongs to the path that knows how to fail out loud."""
     from dl import config, daemon
 
     daemon.write_signature(tmp_path, "from-an-older-dl")
     daemon.write_pid(tmp_path, 4242)
-    restarted = []
-    monkeypatch.setattr(daemon, "_terminate", lambda pid, wait=5.0: None)
-    monkeypatch.setattr(daemon, "_wait_bindable", lambda port, timeout: True)
-    monkeypatch.setattr(daemon, "_spawn", lambda *a: restarted.append(1))
-    monkeypatch.setattr(daemon, "_await_rpc", lambda *a: True)
+    stopped = []
+    monkeypatch.setattr(daemon, "_terminate", lambda pid, wait=5.0: stopped.append(pid))
 
     class Idle:
         def tell_active(self):
@@ -335,11 +333,12 @@ def test_a_daemon_started_before_a_setting_existed_is_restarted(tmp_path, monkey
         def tell_waiting(self):
             return []
 
-    assert daemon.restart_if_stale(config.defaults(), tmp_path, "s", Idle()) is True
-    assert restarted == [1]
+    assert daemon.stop_if_stale(config.defaults(), tmp_path, "s", Idle()) is True
+    assert stopped == [4242]
+    assert daemon.read_pid(tmp_path) == 0
 
 
-def test_a_busy_daemon_is_never_restarted_under_a_download(tmp_path, monkeypatch):
+def test_a_busy_daemon_is_never_stopped_under_a_download(tmp_path, monkeypatch):
     from dl import config, daemon
 
     daemon.write_signature(tmp_path, "from-an-older-dl")
@@ -353,11 +352,11 @@ def test_a_busy_daemon_is_never_restarted_under_a_download(tmp_path, monkeypatch
         def tell_waiting(self):
             return []
 
-    assert daemon.restart_if_stale(config.defaults(), tmp_path, "s", Busy()) is False
+    assert daemon.stop_if_stale(config.defaults(), tmp_path, "s", Busy()) is False
     assert restarted == []
 
 
-def test_an_unreachable_daemon_is_not_restarted_from_here(tmp_path, monkeypatch):
+def test_an_unreachable_daemon_is_not_stopped_from_here(tmp_path, monkeypatch):
     from dl import config, daemon
     from dl.rpc import Aria2Unreachable
 
@@ -372,7 +371,7 @@ def test_an_unreachable_daemon_is_not_restarted_from_here(tmp_path, monkeypatch)
         def tell_waiting(self):
             return []
 
-    assert daemon.restart_if_stale(config.defaults(), tmp_path, "s", Gone()) is False
+    assert daemon.stop_if_stale(config.defaults(), tmp_path, "s", Gone()) is False
     assert restarted == []
 
 
@@ -384,3 +383,66 @@ def test_spawning_records_the_signature(tmp_path, monkeypatch):
     daemon._spawn(cfg, tmp_path, daemon.PORT, "s")
     wanted = daemon.args_signature(daemon.aria2_args(cfg, tmp_path, daemon.PORT, "s"))
     assert daemon.read_signature(tmp_path) == wanted
+
+
+def test_a_restart_that_cannot_bind_is_an_error_not_a_dead_client(tmp_path, monkeypatch):
+    """It killed the daemon, could not bind the port back, and handed out a
+    client pointing at nothing. Everything downstream then raised."""
+    from dl import config, daemon
+
+    daemon.write_signature(tmp_path, "from-an-older-dl")
+    daemon.write_pid(tmp_path, 4242)
+    monkeypatch.setattr(daemon.shutil, "which", lambda _n: "/usr/bin/aria2c")
+    monkeypatch.setattr(daemon, "_probe", lambda port, secret: "ours")
+    monkeypatch.setattr(daemon, "_terminate", lambda pid, wait=5.0: None)
+    monkeypatch.setattr(daemon, "_wait_bindable", lambda port, timeout: False)
+    monkeypatch.setattr(daemon, "_retire_wanderer", lambda state, secret: None)
+    monkeypatch.setattr(daemon, "alive", lambda pid: False)
+
+    class Idle:
+        def tell_active(self):
+            return []
+
+        def tell_waiting(self):
+            return []
+
+    monkeypatch.setattr(daemon, "Aria2", lambda *a, **k: Idle())
+    with pytest.raises(daemon.DaemonStartFailed):
+        daemon.ensure_running(config.defaults(), tmp_path)
+
+
+def test_a_port_just_released_is_still_bindable(tmp_path):
+    """A daemon that has only just stopped leaves its socket in TIME_WAIT, and
+    a probe without SO_REUSEADDR reads that as somebody else holding the port."""
+    import socket
+
+    from dl import daemon
+
+    holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    holder.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    holder.bind(("127.0.0.1", 0))
+    port = holder.getsockname()[1]
+    holder.listen(1)
+    holder.close()
+    assert daemon._bindable(port) is True
+
+
+async def test_the_preview_survives_a_daemon_that_went_away(sandbox_cfg, tmp_path, monkeypatch):
+    """Queuing runs inside the preview's own event loop, so an error there is a
+    traceback across the terminal rather than a message."""
+    from dl.rpc import Aria2Unreachable
+    from dl.tui import preview as preview_module
+    from dl.tui.preview import PreviewApp
+    from tests.test_app import FakeClient
+
+    monkeypatch.setattr(preview_module, "STATE_DIR", tmp_path)
+
+    def boom(chosen, decisions=None):
+        raise Aria2Unreachable("connection refused")
+
+    app = PreviewApp(sandbox_cfg, FakeClient(), queue=boom, pick_paths=False)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._start_queue()
+        await pilot.pause()
+    assert app.failed

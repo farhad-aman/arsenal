@@ -220,6 +220,10 @@ def _bindable(port: int) -> bool:
     """A daemon shutting down refuses connections while still holding its
     listening socket, so 'connection refused' does not imply we can bind."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        # A daemon that has only just stopped leaves its socket in
+        # TIME_WAIT. aria2 sets this and would bind; without it the probe
+        # is stricter than the thing it is answering for.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind(("127.0.0.1", port))
             return True
@@ -253,20 +257,21 @@ def write_signature(state: Path, value: str) -> None:
     (state / "args.sha").write_text(value)
 
 
-def restart_if_stale(cfg: Config, state: Path, secret: str, client) -> bool:
-    """Restart a daemon still running on arguments dl no longer asks for.
+def stop_if_stale(cfg: Config, state: Path, secret: str, client) -> bool:
+    """Stop a daemon still running on arguments dl no longer asks for.
 
     A daemon keeps what it started with, and most of these cannot be changed
     over RPC — the DHT could not be switched on for a daemon that predates it
     however long dl ran. Adopting one is the normal path, so without this a
-    setting added today reaches a machine only when something else happens to
-    stop the daemon.
+    setting added today reaches a machine only when something else stops the
+    daemon.
 
-    Only while nothing is in flight. ensure_running is called by every command,
-    so the next idle moment takes care of it.
+    Only stops it, and only while nothing is in flight. Starting the
+    replacement is left to the path that already knows how to wait for the
+    port and how to say so when it cannot — killing a daemon and then handing
+    back a client pointing at nothing is worse than any staleness.
     """
-    wanted = args_signature(aria2_args(cfg, state, PORT, secret))
-    if wanted == read_signature(state):
+    if args_signature(aria2_args(cfg, state, PORT, secret)) == read_signature(state):
         return False
     try:
         if client.tell_active() or client.tell_waiting():
@@ -274,10 +279,8 @@ def restart_if_stale(cfg: Config, state: Path, secret: str, client) -> bool:
     except (Aria2Error, Aria2Unreachable):
         return False
     _terminate(read_pid(state))
-    if not _wait_bindable(PORT, 5.0):
-        return False
-    _spawn(cfg, state, PORT, secret)
-    return _await_rpc(PORT, secret, 5.0)
+    clear_pid(state)
+    return True
 
 
 def _spawn(cfg: Config, state: Path, port: int, secret: str) -> None:
@@ -397,10 +400,10 @@ def ensure_running(cfg: Config, state: Path | None = None) -> Aria2:
     secret = read_secret(state)
 
     if _probe(PORT, secret) == "ours":
-        write_port(state, PORT)
         client = Aria2("127.0.0.1", PORT, secret, state=state)
-        restart_if_stale(cfg, state, secret, client)
-        return client
+        if not stop_if_stale(cfg, state, secret, client):
+            write_port(state, PORT)
+            return client
 
     _retire_wanderer(state, secret)
 

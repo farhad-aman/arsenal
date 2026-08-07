@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .. import duplicates, history, instance, routing
 from ..config import STATE_DIR, Category
+from ..rpc import Aria2Error, Aria2Unreachable
 from ..format import human_bytes, human_duration, human_speed
 from ..theme import glyph, select
 from .app import DlApp
@@ -77,6 +78,7 @@ class PreviewApp(DlApp):
         self.pick_paths = pick_paths
         self.watch = set(gids)
         self.results: list[dict] = []
+        self.failed = ""
         self.hint_text = PREVIEW_HINT
         self.pending = list(pending)
         self.queue = queue
@@ -169,7 +171,14 @@ class PreviewApp(DlApp):
 
     def _start_queue(self) -> None:
         self.picking = False
-        gids = self.queue(self.chosen, self.decisions) if self.queue else []
+        try:
+            gids = self.queue(self.chosen, self.decisions) if self.queue else []
+        except (Aria2Error, Aria2Unreachable) as exc:
+            # Inside the app's own event loop, where an escape is a
+            # traceback across the terminal rather than a message.
+            self.failed = str(exc)
+            self.exit()
+            return
         self.watch = set(gids)
         if not self.watch:
             self.exit()
@@ -245,6 +254,8 @@ def run_preview(
     finally:
         instance.release(where)
     icons = select(cfg).icons
+    if getattr(app, "failed", ""):
+        return [f"  {MARKS[icons]['fail']} {app.failed}"], True
     if app.cancelled:
         return [f"  {MARKS[icons]['fail']} cancelled — nothing queued"], True
     return summarise(app.results, icons=icons), False
