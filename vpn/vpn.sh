@@ -552,12 +552,17 @@ route = cfg.get("route", {})
 route["auto_detect_interface"] = True
 route["default_domain_resolver"] = "local-dns"  # resolve outbound server domains via system resolver
 route["final"] = "direct"
-rules = [r for r in route.get("rules", []) if "process_name" not in r and "inbound" not in r]
+rules = [r for r in route.get("rules", []) if "process_name" not in r and "inbound" not in r
+         and r.get("action") != "reject"]
 if apps:
     rules.insert(0, {"process_name": apps, "outbound": "proxy"})
 if proxy_inbound_tags:
     # Anything hitting :2080 goes through the proxy, whatever app it is
     rules.insert(0, {"inbound": proxy_inbound_tags, "outbound": "proxy"})
+# Guard against a routing loop: traffic destined to the TUN's own gateway must
+# be rejected, never sent to "direct" (which would dial the TUN and re-enter it,
+# pinning several cores). Must stay FIRST so it wins before final=direct.
+rules.insert(0, {"ip_cidr": ["172.18.0.1/30", "fdfe:dcba:9876::1/126"], "action": "reject"})
 route["rules"] = rules
 cfg["route"] = route
 
