@@ -19,6 +19,7 @@ from .. import (
     routing,
     search,
     sort,
+    started,
     theme,
     youtube,
     ytjob,
@@ -448,8 +449,14 @@ class DlApp(App):
         self.disconnected = False
         items = self._filter_items(polled)
         self._proxy_flags(items)
+        queued_at = self._queue_times(polled)
         rows = [
-            row_from_status(item, self.cfg, self.proxied.get(item.get("gid", ""), False))
+            row_from_status(
+                item,
+                self.cfg,
+                self.proxied.get(item.get("gid", ""), False),
+                queued_at.get(item.get("gid", ""), 0),
+            )
             for item in items
         ]
         rows += [row_from_job(job, self.cfg) for job in self._youtube_jobs()]
@@ -468,6 +475,16 @@ class DlApp(App):
         self.status.update_stats(stats_from(stat, elapsed), self.sort_badge())
         self._repaint_search()
         self._after_refresh(items)
+
+    def _queue_times(self, polled: list[dict]) -> dict[str, int]:
+        """When each live download was added, forgetting the ones that have left."""
+        try:
+            times = started.load(STATE_DIR)
+            if started.overgrown(times):
+                started.prune(STATE_DIR, [item.get("gid", "") for item in polled])
+        except OSError:
+            return {}
+        return times
 
     def _selected(self):
         gid = self.table.selected_gid

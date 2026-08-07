@@ -242,7 +242,7 @@ def test_a_daemon_left_on_another_port_is_shut_down_on_the_next_start(
     asked = []
 
     class Stub:
-        def __init__(self, host, port, secret, timeout=5.0):
+        def __init__(self, host, port, secret, timeout=5.0, state=None):
             self.port = port
 
         def shutdown(self):

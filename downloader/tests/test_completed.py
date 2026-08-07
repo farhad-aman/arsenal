@@ -30,12 +30,29 @@ def test_record_path_returns_none_for_empty():
     assert record_path(record()).name == "movie.mkv"
 
 
-def test_render_entry_shows_name_size_category_and_age(th):
-    line = render_entry(record(), th, selected=False, now=int(time.time()))
+def test_render_entry_shows_name_size_category_and_time(th):
+    now = int(time.time())
+    line = render_entry(record(), th, selected=False, now=now)
     assert "movie.mkv" in line
     assert "435 MB" in line
     assert "video" in line
-    assert "ago" in line
+    assert time.strftime("%H:%M", time.localtime(now - 120)) in line
+
+
+def test_render_entry_never_says_ago(th):
+    assert "ago" not in render_entry(record(), th, selected=False, now=int(time.time()))
+
+
+def test_render_entry_dates_an_older_download(th):
+    then = int(time.time()) - 40 * 86400
+    line = render_entry(record(ts=then), th, selected=False, now=int(time.time()))
+    assert time.strftime("%Y-%m-%d %H:%M", time.localtime(then)) in line
+
+
+def test_render_entry_shows_a_dash_when_the_record_has_no_timestamp(th):
+    from dl.format import DASH
+
+    assert DASH in render_entry(record(ts=0), th, selected=False, now=int(time.time()))
 
 
 def test_render_entry_marks_selection(th):

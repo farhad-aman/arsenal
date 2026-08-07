@@ -4,6 +4,7 @@ from pathlib import Path
 
 from textual.widgets import Static
 
+from .. import clock
 from ..config import Category, Config
 from ..format import (
     SPINNER,
@@ -43,6 +44,7 @@ class Row:
     error: str
     url: str = ""
     proxied: bool = False
+    started: int = 0
     history: list[int] = field(default_factory=list)
 
     @property
@@ -50,7 +52,7 @@ class Row:
         return (self.done * 100.0 / self.total) if self.total else 0.0
 
 
-def row_from_status(item: dict, cfg: Config, proxied: bool = False) -> Row:
+def row_from_status(item: dict, cfg: Config, proxied: bool = False, started: int = 0) -> Row:
     files = item.get("files") or [{}]
     first = files[0]
     path = Path(first.get("path", "") or "")
@@ -75,6 +77,7 @@ def row_from_status(item: dict, cfg: Config, proxied: bool = False) -> Row:
         error=item.get("errorMessage", "") or "",
         url=url,
         proxied=proxied,
+        started=started,
     )
 
 
@@ -111,6 +114,7 @@ def row_from_job(job: dict, cfg: Config) -> Row:
         error=job.get("error", "") or "",
         url=job.get("url", ""),
         proxied=bool(job.get("proxy")),
+        started=int(job.get("started", 0) or 0),
     )
 
 
@@ -120,10 +124,13 @@ SIZE_CELL = 20
 STATE_CELL = 15
 SPARK_CELL = 8
 ETA_CELL = 11
+ADDED_CELL = clock.CELL + 2
 
 
 def columns_for_width(width: int) -> set[str]:
     columns = set()
+    if width >= 96:
+        columns.add("added")
     if width >= 80:
         columns.add("folder")
     if width >= 66:
@@ -201,14 +208,19 @@ def render_row(
     if "eta" in columns:
         eta = _paint(f'{glyph("⏱", theme.icons)} {human_duration(row.eta)}', theme.dim, theme)
         parts.append(_cell(eta, ETA_CELL))
+    if "added" in columns:
+        added = _paint(f'{glyph("📅", theme.icons)} {clock.stamp(row.started)}', theme.dim, theme)
+        parts.append(_cell(added, ADDED_CELL))
     if "folder" in columns:
         parts.append(_paint(row.category.name.upper(), row.category.hue, theme))
     body = "  ".join(parts)
 
     lines = [head, body]
     if selected and expanded:
+        # Also carries the added time, which the columns drop on a narrow terminal.
         lines.append(
-            f'{marker}     {glyph("📂", theme.icons)} {escape(str(row.path))} · {row.conns} conns'
+            f'{marker}     {glyph("📂", theme.icons)} {escape(str(row.path))} · '
+            f"{row.conns} conns · added {clock.stamp(row.started)}"
         )
     return lines
 
@@ -254,9 +266,24 @@ class DownloadTable(Static):
         previous = {r.gid: r.history for r in self.rows}
         for row in rows:
             row.history = (previous.get(row.gid, []) + [row.speed])[-8:]
+        anchor = self.selected_gid
         self.rows = rows
-        self.cursor = min(self.cursor, max(len(rows) - 1, 0))
+        self.cursor = self._locate(anchor)
         self.refresh_view()
+
+    def _locate(self, gid: str | None) -> int:
+        """Where the selected download sits now the list has been rebuilt.
+
+        The cursor is an index but the rows move under it: J and K reorder the
+        queue, sorting rearranges it, and a finished download leaves. Holding
+        the index would leave the selection on whatever slid into the slot,
+        which is why pressing K twice used to swap one pair back and forth
+        instead of walking a download to the top.
+        """
+        for index, row in enumerate(self.rows):
+            if row.gid == gid:
+                return index
+        return min(self.cursor, max(len(self.rows) - 1, 0))
 
     def refresh_view(self) -> None:
         self.frame += 1

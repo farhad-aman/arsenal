@@ -2,6 +2,7 @@ import itertools
 import json
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 
 class Aria2Error(Exception):
@@ -16,11 +17,21 @@ class Aria2Unreachable(Exception):
 
 
 class Aria2:
-    def __init__(self, host: str, port: int, secret: str, timeout: float = 5.0):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        secret: str,
+        timeout: float = 5.0,
+        state: Path | None = None,
+    ):
         self.host = host
         self.port = port
         self.secret = secret
         self.timeout = timeout
+        # Where to note a new download's queue time. aria2 never reports one,
+        # and addUri is the only moment the gid and the clock are both in hand.
+        self.state = state
         self._ids = itertools.count(1)
 
     @property
@@ -55,7 +66,17 @@ class Aria2:
         return self._call("aria2.getVersion")
 
     def add_uri(self, uris: list[str], options: dict) -> str:
-        return self._call("aria2.addUri", uris, options)
+        gid = self._call("aria2.addUri", uris, options)
+        if self.state is not None:
+            from . import started
+
+            try:
+                started.record(self.state, gid)
+            except OSError:
+                # Losing a timestamp costs a column; failing the add costs the
+                # download.
+                pass
+        return gid
 
     def tell_active(self) -> list[dict]:
         return self._call("aria2.tellActive")

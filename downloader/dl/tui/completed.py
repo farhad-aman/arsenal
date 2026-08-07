@@ -3,7 +3,8 @@ from pathlib import Path
 
 from textual.widgets import Static
 
-from ..format import human_bytes, human_duration
+from .. import clock
+from ..format import human_bytes
 from ..theme import Theme, glyph
 from .table import escape
 
@@ -22,10 +23,10 @@ def render_entry(record: dict, theme: Theme, selected: bool, now: int) -> str:
     name = escape(record.get("name", "")) or "(unnamed)"
     size = human_bytes(int(record.get("bytes", 0) or 0))
     category = record.get("category", "")
-    age = human_duration(max(now - int(record.get("ts", 0) or 0), 0))
+    when = clock.stamp(record.get("ts"), now).ljust(clock.CELL)
     missing = "" if _exists(record) else "  (file gone)"
     via = f'  {glyph("🌐", theme.icons)}' if record.get("proxy") else ""
-    line = f"{marker} {mark}  {name:<44} {size:>10}  {category:<9} {age} ago{missing}{via}"
+    line = f"{marker} {mark}  {name:<44} {size:>10}  {category:<9} {when}{missing}{via}".rstrip()
     if theme.mono:
         return line
     color = theme.ok if ok else theme.danger

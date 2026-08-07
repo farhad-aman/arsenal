@@ -80,7 +80,8 @@ def test_row_pct_is_zero_when_total_unknown(cfg):
 
 
 def test_columns_drop_in_order_as_width_shrinks():
-    assert columns_for_width(100) == {"folder", "eta", "spark"}
+    assert columns_for_width(100) == {"added", "folder", "eta", "spark"}
+    assert "added" not in columns_for_width(94)
     assert "folder" not in columns_for_width(78)
     assert "eta" not in columns_for_width(64)
     assert columns_for_width(52) == set()
@@ -232,3 +233,59 @@ def test_render_row_escapes_markup_in_filename(cfg, th):
     )
     joined = " ".join(render_row(row, th, 100, selected=False, frame=0))
     assert "\\[bold]" in joined
+
+
+def test_row_from_status_has_no_start_time_by_default(cfg):
+    assert row_from_status(status(), cfg).started == 0
+
+
+def test_row_from_status_carries_the_recorded_start_time(cfg):
+    assert row_from_status(status(), cfg, started=1000).started == 1000
+
+
+def test_row_from_job_takes_its_start_time_from_the_job(cfg):
+    from dl.tui.table import row_from_job
+
+    assert row_from_job(yt_job(started=1234), cfg).started == 1234
+
+
+def test_row_from_job_survives_a_job_with_no_start_time(cfg):
+    from dl.tui.table import row_from_job
+
+    job = yt_job()
+    job.pop("started", None)
+    assert row_from_job(job, cfg).started == 0
+
+
+def test_a_wide_row_shows_the_added_time(cfg, th):
+    import time
+
+    now = int(time.time())
+    row = row_from_status(status(), cfg, started=now)
+    joined = " ".join(render_row(row, th, 120, selected=False, frame=0))
+    assert time.strftime("%H:%M", time.localtime(now)) in joined
+
+
+def test_a_narrow_row_drops_the_added_time(cfg, th):
+    import time
+
+    now = int(time.time())
+    row = row_from_status(status(), cfg, started=now)
+    joined = " ".join(render_row(row, th, 90, selected=False, frame=0))
+    assert time.strftime("%H:%M", time.localtime(now)) not in joined
+
+
+def test_an_unrecorded_start_time_renders_as_a_dash(cfg, th):
+    from dl.format import DASH
+
+    joined = " ".join(render_row(row_from_status(status(), cfg), th, 120, False, 0))
+    assert DASH in joined
+
+
+def test_the_expanded_line_carries_the_added_time_on_a_narrow_terminal(cfg, th):
+    import time
+
+    now = int(time.time())
+    row = row_from_status(status(), cfg, started=now)
+    lines = render_row(row, th, 70, selected=True, frame=0, expanded=True)
+    assert time.strftime("%H:%M", time.localtime(now)) in lines[-1]

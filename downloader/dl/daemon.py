@@ -333,7 +333,7 @@ def ensure_running(cfg: Config, state: Path = STATE_DIR) -> Aria2:
 
     if _probe(PORT, secret) == "ours":
         write_port(state, PORT)
-        return Aria2("127.0.0.1", PORT, secret)
+        return Aria2("127.0.0.1", PORT, secret, state=state)
 
     _retire_wanderer(state, secret)
 
@@ -356,7 +356,7 @@ def ensure_running(cfg: Config, state: Path = STATE_DIR) -> Aria2:
     _spawn(cfg, state, PORT, secret)
     if _await_rpc(PORT, secret, 5.0):
         write_port(state, PORT)
-        return Aria2("127.0.0.1", PORT, secret)
+        return Aria2("127.0.0.1", PORT, secret, state=state)
 
     quarantine_session(state)
     raise DaemonStartFailed(f"aria2c did not answer within 5s\n{_tail_log(state)}")
