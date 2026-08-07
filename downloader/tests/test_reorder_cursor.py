@@ -6,7 +6,10 @@ import pytest
 
 from dl import config, theme
 from dl.routing import OTHER
+from dl.rpc import Aria2Error, Aria2Unreachable
+from dl.tui.app import DlApp
 from dl.tui.table import DownloadTable, Row
+from tests.test_app import FakeClient
 
 
 @pytest.fixture
@@ -117,3 +120,45 @@ def test_speed_history_still_follows_each_download_across_a_reorder():
     moved.speed = 700
     widget.set_rows([row("b"), moved])
     assert [r.history for r in widget.rows if r.gid == "a"] == [[500, 700]]
+
+
+class RefusingClient(FakeClient):
+    """aria2 rejecting the move, as it does when the gid has just gone."""
+
+    def change_position(self, gid, pos, how):
+        raise Aria2Error(1, f"GID {gid} is not found")
+
+
+class LostClient(FakeClient):
+    def change_position(self, gid, pos, how):
+        raise Aria2Unreachable("connection refused")
+
+
+async def press_move(cfg, client, key):
+    app = DlApp(cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press(key)
+        await pilot.pause()
+        assert app.is_running
+    return app
+
+
+async def test_a_refused_move_does_not_bring_the_dashboard_down(sandbox_cfg):
+    """A download that finishes between the poll and the keypress used to take
+    the whole dashboard with it."""
+    await press_move(sandbox_cfg, RefusingClient(), "J")
+
+
+async def test_a_lost_daemon_during_a_move_does_not_bring_it_down(sandbox_cfg):
+    await press_move(sandbox_cfg, LostClient(), "K")
+
+
+async def test_a_move_that_works_is_still_sent(sandbox_cfg):
+    client = FakeClient()
+    app = DlApp(sandbox_cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("J")
+        await pilot.pause()
+    assert client.positions == [("g1", 1, "POS_CUR")]

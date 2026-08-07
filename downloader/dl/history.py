@@ -16,20 +16,24 @@ def append(record: dict, path: Path) -> None:
         os.fsync(fh.fileno())
 
 
-def _key(record: dict) -> tuple:
+def key(record: dict) -> tuple:
+    """What makes two history lines the same download.
+
+    The same file fetched twice is two records, so the name alone will not do.
+    """
     return (record.get("ts"), record.get("path"), record.get("name"))
 
 
 def remove_entry(path: Path, record: dict) -> bool:
     if not path.exists():
         return False
-    target = _key(record)
+    target = key(record)
     kept: list[str] = []
     removed = False
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if not removed:
             try:
-                if _key(json.loads(raw)) == target:
+                if key(json.loads(raw)) == target:
                     removed = True
                     continue
             except json.JSONDecodeError:

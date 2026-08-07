@@ -601,7 +601,12 @@ class DlApp(App):
                 severity="warning",
             )
             return
-        self.client.change_position(row.gid, offset, "POS_CUR")
+        try:
+            self.client.change_position(row.gid, offset, "POS_CUR")
+        except (Aria2Error, Aria2Unreachable) as exc:
+            # A download that finished between the poll and the keypress is
+            # gone by the time aria2 is asked to move it.
+            self.notify(f"could not move {row.name}: {exc}", severity="warning")
 
     def action_copy_url(self) -> None:
         self._copy(self._selected_url(), "URL")

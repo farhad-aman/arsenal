@@ -56,10 +56,27 @@ class CompletedTable(Static):
         from .. import history, sort
 
         self.search_query = query
+        anchor = self.selected
         newest_first = history.find(log, query, MAX_ROWS)[::-1]
         self.rows = sort.apply_records(newest_first, order or sort.DONE_DEFAULT)
-        self.cursor = min(self.cursor, max(len(self.rows) - 1, 0))
+        self.cursor = self._locate(anchor)
         self.refresh_view()
+
+    def _locate(self, record: dict | None) -> int:
+        """Where the selected download sits now the list has been rebuilt.
+
+        Rows arrive newest-first, so every download that finishes pushes the
+        rest down one. Holding the index would slide the selection onto a
+        different file — on the tab that offers delete and re-download.
+        """
+        if record is not None:
+            from .. import history
+
+            wanted = history.key(record)
+            for index, row in enumerate(self.rows):
+                if history.key(row) == wanted:
+                    return index
+        return min(self.cursor, max(len(self.rows) - 1, 0))
 
     def move(self, delta: int) -> None:
         if not self.rows:

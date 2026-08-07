@@ -16,6 +16,27 @@ class Aria2Unreachable(Exception):
     pass
 
 
+def _as_error(body: object) -> Aria2Error | None:
+    if not isinstance(body, dict):
+        return None
+    err = body.get("error")
+    if not isinstance(err, dict):
+        return None
+    try:
+        code = int(err.get("code", -1))
+    except (TypeError, ValueError):
+        code = -1
+    return Aria2Error(code, str(err.get("message", "")))
+
+
+def _refusal(exc: urllib.error.HTTPError) -> Aria2Error | None:
+    """The aria2 rejection carried by an HTTP error response, if there is one."""
+    try:
+        return _as_error(json.loads(exc.read()))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
+        return None
+
+
 class Aria2:
     def __init__(
         self,
@@ -54,12 +75,18 @@ class Aria2:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 body = json.loads(response.read())
         except urllib.error.HTTPError as exc:
+            # aria2 refuses a call with 400 and a JSON-RPC error body. Judging by
+            # the status code alone threw that message away and reported a
+            # working daemon as lost.
+            refusal = _refusal(exc)
+            if refusal is not None:
+                raise refusal from exc
             raise Aria2Unreachable(f"HTTP {exc.code} from {self.url}") from exc
         except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
             raise Aria2Unreachable(str(exc)) from exc
-        if "error" in body:
-            err = body["error"]
-            raise Aria2Error(int(err.get("code", -1)), str(err.get("message", "")))
+        failure = _as_error(body)
+        if failure is not None:
+            raise failure
         return body.get("result")
 
     def get_version(self) -> dict:
