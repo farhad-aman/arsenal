@@ -1,4 +1,3 @@
-from dataclasses import replace
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -137,11 +136,7 @@ class FormScreen(IconMixin, ModalScreen[dict]):
             self.app.reload_config(self._provisional())
 
     def _provisional(self) -> Config:
-        general = replace(
-            self.cfg.general,
-            theme=self.values.get(("general", "theme"), self.cfg.general.theme),
-        )
-        return replace(self.cfg, general=general)
+        return settings.provisional(self.cfg, self.values)
 
     def action_edit(self) -> None:
         entry = self._current()

@@ -1,5 +1,5 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .config import Config, parse_duration
@@ -98,6 +98,29 @@ ATTRIBUTE = {
     ("hooks", "on_complete"): lambda cfg: cfg.on_complete,
     ("hooks", "timeout"): lambda cfg: f"{cfg.hook_timeout}s",
 }
+
+
+# How to put a live setting back into a Config, for the preview a form shows
+# while the value is still being chosen. Every field marked live needs an entry
+# here; a test holds the two together, because the form used to hardcode the
+# theme and a second live field would have previewed as the theme reverting.
+LIVE = {
+    ("general", "theme"): lambda cfg, value: replace(
+        cfg, general=replace(cfg.general, theme=value)
+    ),
+}
+
+
+def provisional(cfg: Config, values: dict) -> Config:
+    """The config as it would be if the live settings on screen were saved.
+
+    Only the live ones: a preview shows the setting being judged, not every
+    unsaved answer on the form.
+    """
+    for path, place in LIVE.items():
+        if path in values:
+            cfg = place(cfg, values[path])
+    return cfg
 
 
 def current(cfg: Config, field: Field):

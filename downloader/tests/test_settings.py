@@ -163,3 +163,52 @@ def test_every_schema_field_can_be_read_from_a_config(sandbox_cfg):
     for section in (settings.GENERAL, settings.LIMITS, settings.YOUTUBE, settings.HOOKS):
         for entry in section:
             settings.current(sandbox_cfg, entry)
+
+
+def test_a_provisional_config_carries_the_live_value():
+    cfg = config.defaults()
+    got = settings.provisional(cfg, {("general", "theme"): "ember"})
+    assert got.general.theme == "ember"
+
+
+def test_a_provisional_config_leaves_everything_else_alone():
+    cfg = config.defaults()
+    got = settings.provisional(cfg, {("general", "theme"): "ember"})
+    assert got.general.max_concurrent == cfg.general.max_concurrent
+    assert got.limits == cfg.limits
+    assert got.categories == cfg.categories
+
+
+def test_a_provisional_config_ignores_values_that_are_not_live():
+    """A preview shows the setting being judged, not the whole unsaved form."""
+    cfg = config.defaults()
+    got = settings.provisional(cfg, {("general", "max_concurrent"): 99})
+    assert got.general.max_concurrent == cfg.general.max_concurrent
+
+
+def test_a_provisional_config_with_nothing_live_is_unchanged():
+    cfg = config.defaults()
+    assert settings.provisional(cfg, {}) == cfg
+
+
+def test_every_live_field_knows_how_to_preview_itself():
+    """The guard. _provisional used to hardcode the theme, so a second live
+    field would have previewed as the theme reverting — wrong, and silent."""
+    live = {
+        field.path
+        for group in (settings.GENERAL, settings.LIMITS, settings.YOUTUBE, settings.HOOKS)
+        for field in group
+        if field.live
+    }
+    missing = live - set(settings.LIVE)
+    assert not missing, f"live fields with no preview: {sorted(missing)}"
+
+
+def test_the_preview_map_has_no_entries_for_fields_that_are_not_live():
+    fields = {
+        field.path: field
+        for group in (settings.GENERAL, settings.LIMITS, settings.YOUTUBE, settings.HOOKS)
+        for field in group
+    }
+    for path in settings.LIVE:
+        assert fields[path].live, f"{path} previews but is not marked live"
