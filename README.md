@@ -64,48 +64,16 @@ unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY no_proxy NO_PROXY
 
 ### `dl` — Download Manager
 
-IDM-style download manager in the terminal: queue, pause/resume, per-filetype
-destination folders, speed limits, and a live animated TUI. Drives a lazily
-spawned `aria2c` daemon, so Ctrl-C never interrupts a transfer and nothing runs
-while idle.
+Moved out to its own repository: **[firelink](https://github.com/farhad-aman/firelink)**.
 
-`dl <url>` asks where to save each file — the routed folder preselected, so `⏎`
-accepts — then attaches a live preview so you can pause, limit, open, or delete
-them without leaving that shell. Typing a path browses the real directories on
-disk; `Ctrl-C` in the picker cancels before anything is queued.
-
-If the download would collide with a file you already have, `dl` warns first and
-offers to skip, rename, or overwrite — instead of silently writing a `.1` copy.
-
-```
-Usage: dl [options]
-
-  dl <url> [url...]     queue downloads and watch them live
-  dl -f <file|->        queue URLs from a file or stdin
-  dl -d <dir> <url>     override destination for this download
-  dl -p <url>           download through the sing-box proxy (:2080)
-  dl --no-preview <url> queue and exit without the live preview
-  dl                    open the TUI
-
-  dl ls                 list downloads
-  dl pause <gid|all>    dl resume <gid|all>    dl rm <gid>
-  dl watch              queue URLs as you copy them
-  dl kill               stop the daemon
-
-Examples:
-  dl https://example.com/ubuntu.iso    → ~/Downloads/ISO
-  dl -f links.txt                      queue a batch
-```
-
-Installed differently from the other tools — it has a Python package and a
-private venv, so it uses a Makefile rather than a symlink:
+An IDM-style download manager in the terminal — queue, pause/resume, per-filetype
+destinations, torrents, YouTube — it outgrew a folder among shell scripts.
 
 ```bash
 brew install aria2
-cd ~/arsenal/downloader && make install
+git clone https://github.com/farhad-aman/firelink.git
+cd firelink && make install
 ```
-
-Full documentation, configuration reference, and keymap: [`downloader/README.md`](downloader/README.md).
 
 ---
 
