@@ -1,11 +1,9 @@
-import subprocess
-import sys
 from pathlib import Path
 
 from textual.app import App
 from textual.widgets import Static
 
-from .. import instance, ytjob, ytqueue, ytrun
+from .. import instance, ytjob, ytqueue
 from ..config import STATE_DIR, Config
 from ..format import human_bytes
 from ..theme import glyph, select
@@ -15,11 +13,11 @@ from .ytadd import YouTubeAdder, label_for
 JOB_DIR = "yt"
 
 
-def jobs_dir(state: Path = None) -> Path:
+def jobs_dir(state: Path | None = None) -> Path:
     return (state or STATE_DIR) / JOB_DIR
 
 
-def spawn(job: dict, state: Path = None, cap: int = 0) -> bool:
+def spawn(job: dict, state: Path | None = None, cap: int = 0) -> bool:
     """Start this job, or leave it queued behind the ones already running.
 
     Returns whether it started. A cap of 0 means start it regardless, which is
@@ -33,7 +31,7 @@ def spawn(job: dict, state: Path = None, cap: int = 0) -> bool:
     return True
 
 
-def resume(job: dict, state: Path = None) -> None:
+def resume(job: dict, state: Path | None = None) -> None:
     """Pick a paused job back up. Fragments live in the scratch directory, which
     a pause leaves alone, so yt-dlp continues rather than starting over."""
     job.update(status="queued", speed=0, error="")
@@ -99,10 +97,11 @@ class YouTubeWatchApp(App):
 
     BINDINGS = [("q", "quit", "quit")]
 
-    def __init__(self, cfg: Config, ids: list[str]):
+    def __init__(self, cfg: Config, ids: list[str], state: Path | None = None):
         super().__init__()
         self.cfg = cfg
         self.ids = set(ids)
+        self.jobs = jobs_dir(state)
         self.theme_data = select(cfg)
         self.table = DownloadTable(self.theme_data, id="yt-watch")
         self.finished: list[dict] = []
@@ -117,10 +116,10 @@ class YouTubeWatchApp(App):
         self.call_after_refresh(self.poll)
 
     def poll(self) -> None:
-        held = set(ytqueue.claims(jobs_dir()))
+        held = set(ytqueue.claims(self.jobs))
         mine = [
-            ytjob.reap(jobs_dir(), j, held)
-            for j in ytjob.list_jobs(jobs_dir())
+            ytjob.reap(self.jobs, j, held)
+            for j in ytjob.list_jobs(self.jobs)
             if j.get("id") in self.ids
         ]
         self.table.set_rows([row_from_job(job, self.cfg) for job in mine])
@@ -129,8 +128,8 @@ class YouTubeWatchApp(App):
             self.exit()
 
 
-def watch(cfg: Config, jobs: list[dict]) -> list[str]:
-    app = YouTubeWatchApp(cfg, [job["id"] for job in jobs])
+def watch(cfg: Config, jobs: list[dict], state: Path | None = None) -> list[str]:
+    app = YouTubeWatchApp(cfg, [job["id"] for job in jobs], state)
     app.run()
     return summarise(app.finished or jobs, select(cfg).icons)
 
@@ -153,7 +152,7 @@ _label = label_for
 
 
 def run_youtube(
-    cfg: Config, urls: list[str], proxy: bool = False, state: Path = None
+    cfg: Config, urls: list[str], proxy: bool = False, state: Path | None = None
 ) -> tuple[list[str], bool]:
     """Ask what to download, then watch it.
 
@@ -168,18 +167,20 @@ def run_youtube(
     if not instance.acquire(where):
         return ["  dl is already running"], True
     try:
-        return _run_youtube(cfg, urls, proxy)
+        return _run_youtube(cfg, urls, proxy, where)
     finally:
         instance.release(where)
 
 
-def _run_youtube(cfg: Config, urls: list[str], proxy: bool) -> tuple[list[str], bool]:
+def _run_youtube(
+    cfg: Config, urls: list[str], proxy: bool, state: Path | None = None
+) -> tuple[list[str], bool]:
     app = YouTubeSetupApp(cfg, urls, proxy)
     app.run()
     if app.failed:
         return [f"  {glyph('❌', select(cfg).icons)} {app.failed}"], True
     if app.cancelled:
-        return ["  ✖ cancelled — nothing queued"], True
+        return [f"  {glyph('✖', select(cfg).icons)} cancelled — nothing queued"], True
     mark = glyph("⏭", select(cfg).icons)
     skipped = [
         f"  {mark}  skipped  {Path(j['url']).name or j['url']}  — already there"
@@ -187,4 +188,4 @@ def _run_youtube(cfg: Config, urls: list[str], proxy: bool) -> tuple[list[str], 
     ]
     if not app.queued:
         return skipped, False
-    return skipped + watch(cfg, app.queued), False
+    return skipped + watch(cfg, app.queued, state), False

@@ -3,13 +3,12 @@ import time
 from pathlib import Path
 
 from . import duplicates, routing, search, theme
-from .config import Config, parse_rate
+from .config import Config
 from .destinations import ensure_writable
 from .format import human_bytes, human_speed
 from .routing import Resolution
 from .rpc import Aria2Error, Aria2Unreachable
 from .theme import glyph
-from .rpc import Aria2Error, Aria2Unreachable
 
 SCHEMES = ("http://", "https://", "ftp://", "ftps://", "sftp://", "magnet:")
 _SETTLED = ("removed", "error", "complete")

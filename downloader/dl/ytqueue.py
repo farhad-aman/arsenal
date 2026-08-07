@@ -115,6 +115,10 @@ def _lock(directory: Path):
 def take_slot(directory: Path, job_id: str, cap: int) -> bool:
     """Claim one of the running slots, if there is a free one."""
     lock = _lock(directory)
+    if lock is None:
+        # Counting slots without the lock is how two supervisors both took the
+        # last one. Refusing leaves the job queued for fill() to retry.
+        return False
     try:
         if running(directory) >= max(cap, 1):
             return False

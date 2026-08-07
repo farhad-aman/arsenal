@@ -480,8 +480,6 @@ class DlApp(App):
         self.search_total = len(rows)
         # Before set_rows, which is what draws the placeholder. Setting it after
         # leaves the message a frame behind the query it is describing.
-        # Before set_rows, which is what draws the placeholder. Setting it after
-        # leaves the message a frame behind the query it is describing.
         if search.active(self.search_query):
             self.table.placeholder = empty_note(self.search_query, self.theme_data)
         elif self.splash_when_empty and not self.showing_completed:
@@ -670,7 +668,7 @@ class DlApp(App):
         if write_clipboard(value):
             self.notify(f"copied {what}")
         else:
-            self.notify(f"could not reach the clipboard", severity="error")
+            self.notify("could not reach the clipboard", severity="error")
 
     def _selected_url(self) -> str:
         if self.showing_completed:

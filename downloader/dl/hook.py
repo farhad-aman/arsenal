@@ -8,7 +8,6 @@ from pathlib import Path
 from . import config, daemon, history, routing
 from .config import STATE_DIR, Config
 from .rpc import Aria2
-from .rpc import Aria2
 
 
 def _first_file(status: dict) -> dict:

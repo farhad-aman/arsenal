@@ -152,12 +152,20 @@ def _countable(path: Path) -> bool:
     return path.is_file() and not path.name.endswith(_SKIP_SUFFIXES)
 
 
+def _size(path: Path) -> int:
+    # Fragments are renamed and merged away while this counts them.
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
 def bytes_on_disk(directory: Path) -> int:
     """Progress with an external downloader has to be read off the filesystem —
     yt-dlp stops reporting bytes once aria2c owns the transfer."""
     if not directory.is_dir():
         return 0
-    return sum(p.stat().st_size for p in directory.iterdir() if _countable(p))
+    return sum(_size(p) for p in directory.iterdir() if _countable(p))
 
 
 def clean_scratch(state: Path, job: dict) -> None:
@@ -329,7 +337,11 @@ def sweep(
         reap(directory, job, held)
         record = directory / f"{job['id']}.json"
         finished = job.get("status") in ("complete", "cancelled")
-        aged = moment - record.stat().st_mtime > keep_finished
+        try:
+            aged = moment - record.stat().st_mtime > keep_finished
+        except OSError:
+            # Deleted between listing and here; nothing left to tidy.
+            continue
         if finished and aged and job.get("url", "") in recorded:
             record.unlink(missing_ok=True)
             record.with_suffix(".log").unlink(missing_ok=True)

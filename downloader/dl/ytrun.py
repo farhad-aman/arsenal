@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import subprocess
@@ -7,7 +8,7 @@ from collections import deque
 from pathlib import Path
 
 from . import history, ytjob, ytqueue
-from .config import STATE_DIR, load
+from .config import load
 from .hook import after_complete, notify
 
 POLL = 0.5
@@ -253,7 +254,14 @@ def _run(state: Path, job: dict, cfg) -> int:
         # Still here. A slot is held by being kept fresh, not by a pid.
         ytqueue.touch(state, job["id"])
         done = ytjob.bytes_on_disk(scratch)
-        current = ytjob.read(state / f"{job['id']}.json")
+        try:
+            current = ytjob.read(state / f"{job['id']}.json")
+        except (OSError, json.JSONDecodeError):
+            # The record is how the dashboard says "stop", and deleting it is
+            # how it says "stop for good". Writing anything back from here
+            # would recreate what was just removed, as a row nothing owns.
+            proc.terminate()
+            return 0
         if stand_down(current.get("status", "")):
             proc.terminate()
             return 0
