@@ -24,11 +24,14 @@ class PlaylistScreen(ModalScreen[int | None]):
         ("n", "newest", "newest"),
     ]
 
-    def __init__(self, title: str, count: int, newest: int = NEWEST):
+    def __init__(
+        self, title: str, count: int, newest: int = NEWEST, unavailable: int = 0
+    ):
         super().__init__()
         self.collection = title
         self.count = count
         self.newest = newest
+        self.unavailable = unavailable
 
     @property
     def offers_newest(self) -> bool:
@@ -47,7 +50,12 @@ class PlaylistScreen(ModalScreen[int | None]):
         name = escape(self.collection) if self.collection else "(untitled)"
         if cells(name) > 60:
             name = name[:57] + "…"
-        return f"  {name}\n  {self.count} video{'s' if self.count != 1 else ''}"
+        line = f"  {name}\n  {self.count} video{'s' if self.count != 1 else ''}"
+        if self.unavailable:
+            # Said plainly, because the count on screen will not match the
+            # one YouTube shows and that looks like dl losing some.
+            line += f"\n  {self.unavailable} more are private or deleted"
+        return line
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "all":

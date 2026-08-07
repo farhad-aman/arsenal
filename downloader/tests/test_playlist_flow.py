@@ -28,7 +28,9 @@ def listing(monkeypatch):
     entries = [
         playlist.Entry(f"https://youtu.be/v{i}", f"Episode {i}") for i in range(1, 6)
     ]
-    monkeypatch.setattr(ytadd.playlist, "expand", lambda *a, **k: entries)
+    monkeypatch.setattr(
+        ytadd.playlist, "expand", lambda *a, **k: playlist.Listing(entries, 0)
+    )
     return entries
 
 
@@ -137,7 +139,9 @@ async def test_newest_only_takes_the_front_of_the_list(cfg, monkeypatch, spawned
     entries = [
         playlist.Entry(f"https://youtu.be/v{i}", f"Episode {i}") for i in range(1, 41)
     ]
-    monkeypatch.setattr(ytadd.playlist, "expand", lambda *a, **k: entries)
+    monkeypatch.setattr(
+        ytadd.playlist, "expand", lambda *a, **k: playlist.Listing(entries, 0)
+    )
     app = DlApp(config_module.replace(cfg, newest=25), FakeClient())
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -215,7 +219,9 @@ async def test_a_big_playlist_starts_only_as_many_as_the_cap_allows(
     entries = [
         playlist.Entry(f"https://youtu.be/v{i}", f"Episode {i}") for i in range(1, 21)
     ]
-    monkeypatch.setattr(ytadd.playlist, "expand", lambda *a, **k: entries)
+    monkeypatch.setattr(
+        ytadd.playlist, "expand", lambda *a, **k: playlist.Listing(entries, 0)
+    )
     spawned = []
     monkeypatch.setattr(ytqueue, "spawn", lambda job, st: spawned.append(job["id"]))
 
@@ -252,7 +258,9 @@ async def test_the_collection_limit_comes_from_the_config(cfg, monkeypatch, spaw
     entries = [
         playlist.Entry(f"https://youtu.be/v{i}", f"Episode {i}") for i in range(1, 300)
     ]
-    monkeypatch.setattr(ytadd.playlist, "expand", lambda *a, **k: entries)
+    monkeypatch.setattr(
+        ytadd.playlist, "expand", lambda *a, **k: playlist.Listing(entries, 0)
+    )
     app = DlApp(config_module.replace(cfg, newest=150), FakeClient())
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -280,7 +288,7 @@ async def test_expanding_waits_as_long_as_a_probe_would(cfg, monkeypatch, spawne
 
     def record(url, proxy, cookies, limit=0, timeout=None):
         seen["timeout"] = timeout
-        return [playlist.Entry("https://youtu.be/v1", "One")]
+        return playlist.Listing([playlist.Entry("https://youtu.be/v1", "One")], 0)
 
     monkeypatch.setattr(ytadd.playlist, "expand", record)
     app = DlApp(config_module.replace(cfg, probe_timeout=600), FakeClient())

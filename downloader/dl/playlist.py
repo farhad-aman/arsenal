@@ -61,6 +61,18 @@ def list_command(url: str, proxy: str, cookies_from: str, limit: int = 0) -> lis
     return argv
 
 
+# What yt-dlp prints for a field it could not read. A title reads NA when the
+# video is private or deleted, which a flat listing cannot tell apart from
+# any other entry — except that there is nothing behind it.
+NA = "NA"
+
+
+@dataclass(frozen=True)
+class Listing:
+    entries: list[Entry]
+    unavailable: int
+
+
 class ListingFailed(Exception):
     pass
 
@@ -84,32 +96,48 @@ def expand(url: str, proxy: str, cookies_from: str, limit: int = 0, timeout: flo
         raise ListingFailed(f"timed out after {int(timeout)}s") from None
     except OSError as exc:
         raise ListingFailed(str(exc)) from None
-    entries = parse_entries(done.stdout)
-    if not entries:
+    listing = parse_entries(done.stdout)
+    if not listing.entries:
         detail = (done.stderr or "").strip().splitlines()
+        if listing.unavailable:
+            raise ListingFailed(
+                f"all {listing.unavailable} of them are private or deleted"
+            )
         raise ListingFailed(detail[-1] if detail else "nothing in it")
-    return entries
+    return listing
 
 
-def parse_entries(output: str) -> list[Entry]:
-    entries = []
+def parse_entries(output: str) -> Listing:
+    """The usable videos, and how many were not.
+
+    An entry with no title is a video nobody can fetch — private, or deleted.
+    Offering it means queueing a download whose only outcome is a failed row.
+    """
+    entries: list[Entry] = []
+    unavailable = 0
     for line in output.splitlines():
         if SEPARATOR not in line:
             continue
-        url, _, rest = line.partition(SEPARATOR)
-        url = url.strip()
+        parts = line.split(SEPARATOR)
+        url = parts[0].strip()
         if not url.startswith(("http://", "https://")):
             continue
-        title, _, collection = rest.rpartition(SEPARATOR)
-        if not title:
-            title, collection = collection, ""
-        entries.append(Entry(url, title.strip(), collection.strip()))
-    return entries
+        if len(parts) >= 3:
+            # A title may hold a tab of its own; the collection is the last field.
+            title, collection = SEPARATOR.join(parts[1:-1]), parts[-1]
+        else:
+            title, collection = parts[1], ""
+        name = title.strip()
+        if not name or name == NA:
+            unavailable += 1
+            continue
+        entries.append(Entry(url, name, collection.strip()))
+    return Listing(entries, unavailable)
 
 
 def name_of(entries: list[Entry], fallback: str = "") -> str:
     """What to call this collection. NA is yt-dlp's way of saying it has none."""
     for entry in entries:
-        if entry.collection and entry.collection != "NA":
+        if entry.collection and entry.collection != NA:
             return entry.collection
     return fallback

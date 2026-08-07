@@ -78,7 +78,7 @@ class YouTubeAdder:
         video — so this is a moment even for a long channel.
         """
         try:
-            entries = await asyncio.to_thread(
+            listing = await asyncio.to_thread(
                 playlist.expand,
                 url,
                 self._proxy_for(url),
@@ -92,6 +92,7 @@ class YouTubeAdder:
             self.failed = f"{url}: {exc}"
             self._done()
             return
+        entries = listing.entries
 
         def decided(count: int | None) -> None:
             if not count:
@@ -106,7 +107,10 @@ class YouTubeAdder:
 
         self.host.push_screen(
             PlaylistScreen(
-                self.collection_title(url, entries), len(entries), self.cfg.newest
+                self.collection_title(url, entries),
+                len(entries),
+                self.cfg.newest,
+                listing.unavailable,
             ),
             decided,
         )
