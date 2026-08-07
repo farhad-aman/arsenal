@@ -1,6 +1,8 @@
 import base64
 from pathlib import Path
 
+from .rpc import Aria2Error, Aria2Unreachable
+
 MAGNET = "magnet:"
 SUFFIX = ".torrent"
 
@@ -80,3 +82,23 @@ def target(status: dict, directory: Path) -> Path:
     files = status.get("files") or []
     first = Path(files[0].get("path", "") or "") if files else Path("")
     return first if first.name else directory / name
+
+
+def source_of(client, status: dict) -> Path | None:
+    """The .torrent that was fetched in order to start this download.
+
+    Asking for one over http downloads it into the destination, where it then
+    sits beside the thing it described. A magnet's parent is a [METADATA]
+    placeholder with no file behind it, which is why the suffix is checked
+    rather than assumed.
+    """
+    parent = status.get("following") or ""
+    if not parent:
+        return None
+    try:
+        origin = client.tell_status(parent)
+    except (Aria2Error, Aria2Unreachable):
+        return None
+    files = origin.get("files") or [{}]
+    raw = files[0].get("path", "") or ""
+    return Path(raw) if raw.lower().endswith(SUFFIX) else None

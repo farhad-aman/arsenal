@@ -4,7 +4,7 @@ from .. import cli, history, ytjob
 from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import record_path
 from .modals import DeleteModal
-from .queueing import settle_then_unlink, unlink_download
+from .queueing import drop_source_torrent, settle_then_unlink, unlink_download
 from .table import is_youtube_row
 
 DISK = "disk"
@@ -68,6 +68,9 @@ class Deleting:
             except (Aria2Error, Aria2Unreachable):
                 pass
             if choice == DISK and row.path.name:
+                # Before the removal takes the gid's status with it: the
+                # .torrent it was started from is only findable through that.
+                drop_source_torrent(self.client, row.gid)
                 self.host.run_worker(settle_then_unlink(self.client, row.gid, row.path))
                 self.host.notify(f"deleted {row.name}")
             else:

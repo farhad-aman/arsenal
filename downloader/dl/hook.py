@@ -87,25 +87,12 @@ def discard_corrupt(status: dict) -> bool:
 
 
 def drop_source_torrent(client, status: dict) -> bool:
-    """Remove the .torrent that was fetched in order to start this download.
-
-    Asking for a .torrent over http downloads it into the destination, where
-    it then sits beside the thing it described. Nobody asked for the .torrent.
-    """
-    parent = status.get("following") or ""
-    if not parent:
+    """Remove the .torrent that was fetched to start this download."""
+    blob = torrent.source_of(client, status)
+    if blob is None:
         return False
     try:
-        origin = client.tell_status(parent)
-    except (Aria2Error, Aria2Unreachable):
-        return False
-    files = origin.get("files") or [{}]
-    raw = files[0].get("path", "") or ""
-    # A magnet's parent is a [METADATA] placeholder with no file behind it.
-    if not raw.lower().endswith(torrent.SUFFIX):
-        return False
-    try:
-        Path(raw).unlink()
+        blob.unlink()
         return True
     except OSError:
         return False

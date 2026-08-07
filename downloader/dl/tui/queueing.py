@@ -1,4 +1,5 @@
 import asyncio
+import shutil
 import time
 from pathlib import Path
 
@@ -14,14 +15,36 @@ SETTLE_TIMEOUT = 5.0
 
 
 def unlink_download(path: Path) -> None:
-    """Remove a download and the control file aria2 keeps beside it."""
+    """Remove a download and the control file aria2 keeps beside it.
+
+    A multi-file torrent is a folder, and unlink cannot remove one — the
+    call raised, the error was swallowed, and every file stayed.
+    """
     if not path.name:
         return
     for target in (path, path.with_name(path.name + ".aria2")):
         try:
-            target.unlink()
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            else:
+                target.unlink()
         except OSError:
             pass
+
+def drop_source_torrent(client, gid: str) -> bool:
+    """Remove the .torrent a download was started from, if there was one."""
+    try:
+        status = client.tell_status(gid)
+    except (Aria2Error, Aria2Unreachable):
+        return False
+    blob = torrent.source_of(client, status)
+    if blob is None:
+        return False
+    try:
+        blob.unlink()
+        return True
+    except OSError:
+        return False
 
 
 async def settle_then_unlink(client, gid: str, path: Path) -> None:

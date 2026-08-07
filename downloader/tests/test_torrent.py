@@ -542,3 +542,96 @@ def test_a_vanished_parent_is_quiet(tmp_path):
             raise Aria2Error(1, "not found")
 
     assert hook.drop_source_torrent(Client(), {"following": "gone"}) is False
+
+
+def test_deleting_a_torrent_takes_the_torrent_file_with_it(tmp_path):
+    """d then 'from disk' left the .torrent aria2 fetched to start it."""
+    from dl.tui import queueing
+
+    iso = tmp_path / "debian.iso"
+    iso.write_bytes(b"x" * 10)
+    blob = tmp_path / "debian.iso.torrent"
+    blob.write_bytes(b"d4:infoe")
+
+    class Client:
+        def tell_status(self, gid):
+            if gid == "child":
+                return {"gid": "child", "following": "parent"}
+            return {"gid": "parent", "files": [{"path": str(blob), "uris": []}]}
+
+    queueing.drop_source_torrent(Client(), "child")
+    assert not blob.exists()
+
+
+def test_deleting_a_multi_file_torrent_removes_the_whole_folder(tmp_path):
+    """A multi-file torrent is a folder, and unlink cannot remove one — the
+    call raised, was swallowed, and every file stayed."""
+    from dl.tui import queueing
+
+    folder = tmp_path / "Some Album"
+    folder.mkdir()
+    (folder / "a.flac").write_bytes(b"x")
+    (folder / "b.flac").write_bytes(b"y")
+
+    queueing.unlink_download(folder)
+    assert not folder.exists()
+
+
+def test_deleting_a_single_file_is_unchanged(tmp_path):
+    from dl.tui import queueing
+
+    landed = tmp_path / "a.iso"
+    landed.write_bytes(b"x")
+    control = tmp_path / "a.iso.aria2"
+    control.write_bytes(b"c")
+    queueing.unlink_download(landed)
+    assert not landed.exists() and not control.exists()
+
+
+def test_dropping_a_source_torrent_for_a_plain_download_does_nothing(tmp_path):
+    from dl.tui import queueing
+
+    class Client:
+        def tell_status(self, gid):
+            return {"gid": gid}
+
+    assert queueing.drop_source_torrent(Client(), "g1") is False
+
+
+async def test_delete_from_disk_clears_the_torrent_too(sandbox_cfg, tmp_path, monkeypatch):
+    """End to end through the key: d, then 'from disk'."""
+    from textual.widgets import Button
+
+    from dl.tui import app as app_module
+    from dl.tui.app import DlApp
+    from tests.test_app import FakeClient
+
+    monkeypatch.setattr(app_module, "STATE_DIR", tmp_path / "state")
+    iso = tmp_path / "debian.iso"
+    iso.write_bytes(b"x" * 10)
+    blob = tmp_path / "debian.iso.torrent"
+    blob.write_bytes(b"d4:infoe")
+
+    client = FakeClient()
+    client.active = [{
+        "gid": "child", "status": "active", "totalLength": "10", "completedLength": "5",
+        "downloadSpeed": "1", "connections": "4", "dir": str(tmp_path),
+        "files": [{"path": str(iso), "uris": []}],
+        "bittorrent": {"mode": "single", "info": {"name": "debian.iso"}},
+    }]
+    client.tell_status = lambda gid: (
+        {"gid": "child", "status": "complete", "following": "parent",
+         "files": [{"path": str(iso), "uris": []}]}
+        if gid == "child"
+        else {"gid": "parent", "files": [{"path": str(blob), "uris": []}]}
+    )
+
+    app = DlApp(sandbox_cfg, client)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        app.screen.query_one("#disk", Button).press()
+        await pilot.pause()
+        await pilot.pause()
+    assert not blob.exists(), "the .torrent survived a delete from disk"
