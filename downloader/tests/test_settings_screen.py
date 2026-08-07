@@ -428,7 +428,7 @@ async def test_the_a_key_opens_the_rule_editor(cfg):
         await pilot.pause()
         await pilot.press("a")
         await pilot.pause()
-        assert screen.editing is True
+        assert screen.editing == "add"
 
 
 async def test_saving_rebuilds_the_nesting(cfg):
@@ -495,8 +495,8 @@ async def test_a_duplicate_category_is_refused(cfg):
 
 
 async def test_a_category_can_be_deleted(cfg):
-    """The built-in eight have no special status: config.load() already merges
-    user categories over the defaults."""
+    """The built-in eight have no special status: the [categories] table is the
+    whole list, so removing one removes it."""
     screen = CategoriesScreen(cfg)
     app = Host(screen)
     async with app.run_test() as pilot:
