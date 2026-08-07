@@ -225,7 +225,7 @@ class PreviewApp(DlApp):
 
 
 def run_preview(
-    cfg, client, gids=(), pending=(), queue=None, pick_paths=True, state=STATE_DIR
+    cfg, client, gids=(), pending=(), queue=None, pick_paths=True, state=None
 ) -> tuple[list[str], bool]:
     """Return the lines to print and whether the batch was cancelled.
 
@@ -234,15 +234,16 @@ def run_preview(
     not refusing: the download is already queued either way, and the open
     dashboard is where it will appear.
     """
-    if instance.holder(state):
+    where = state or STATE_DIR
+    if instance.holder(where):
         return [f"  {glyph('⬇', select(cfg).icons)} queued — watch it in the open dl window"], False
-    if not instance.acquire(state):
+    if not instance.acquire(where):
         return [f"  {glyph('⬇', select(cfg).icons)} queued"], False
     try:
         app = PreviewApp(cfg, client, gids, pending, queue, pick_paths)
         app.run()
     finally:
-        instance.release(state)
+        instance.release(where)
     icons = select(cfg).icons
     if app.cancelled:
         return [f"  {MARKS[icons]['fail']} cancelled — nothing queued"], True

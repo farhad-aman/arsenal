@@ -226,3 +226,161 @@ def test_a_remote_torrent_url_still_goes_through_add_uri(sandbox_cfg):
 
     rc, gids = cli.cmd_add(["https://e.com/thing.torrent"], sandbox_cfg, Client(), None)
     assert rc == 0 and seen["uri"] == ["https://e.com/thing.torrent"]
+
+
+def _complete(tmp_path, name="debian.iso", where=None):
+    landed = (where or tmp_path) / name
+    landed.parent.mkdir(parents=True, exist_ok=True)
+    landed.write_bytes(b"x" * 10)
+    return landed
+
+
+def test_a_finished_torrent_moves_into_its_category(tmp_path, sandbox_cfg):
+    """The destination was picked from the .torrent's own filename, before
+    anyone knew what was inside. Routing can only happen once it is known."""
+    from dl import config, hook
+
+    cfg = config.replace(sandbox_cfg, general=config.replace(sandbox_cfg.general, default_dir=tmp_path))
+    landed = _complete(tmp_path)
+    final = hook.relocate(landed, cfg, "https://e.com/debian.iso", by_content=True)
+    assert final.parent == cfg.categories["iso"].dir
+    assert final.exists() and not landed.exists()
+
+
+def test_a_torrent_pinned_with_dash_d_stays_where_it_was_put(tmp_path, sandbox_cfg):
+    from dl import config, hook
+
+    pinned = tmp_path / "elsewhere"
+    cfg = config.replace(sandbox_cfg, general=config.replace(sandbox_cfg.general, default_dir=tmp_path))
+    landed = _complete(tmp_path, where=pinned)
+    final = hook.relocate(landed, cfg, "https://e.com/debian.iso", by_content=True)
+    assert final == landed and landed.exists()
+
+
+def test_a_torrent_folder_with_nothing_to_route_on_stays_put(tmp_path, sandbox_cfg):
+    from dl import config, hook
+
+    cfg = config.replace(sandbox_cfg, general=config.replace(sandbox_cfg.general, default_dir=tmp_path))
+    folder = tmp_path / "Some Album"
+    folder.mkdir()
+    final = hook.relocate(folder, cfg, "", by_content=True)
+    assert final == folder and folder.exists()
+
+
+def test_a_plain_download_still_uses_the_url_to_decide_it_was_not_pinned(tmp_path, sandbox_cfg):
+    """The existing rule, unchanged: an http download that is not where its own
+    URL would have put it was pinned."""
+    from dl import hook
+
+    pinned = tmp_path / "pinned"
+    landed = _complete(tmp_path, where=pinned)
+    assert hook.relocate(landed, sandbox_cfg, "https://e.com/debian.iso") == landed
+
+
+def test_the_seeding_stop_travels_with_the_download(sandbox_cfg, tmp_path):
+    """A daemon started before torrents existed never saw --seed-time=0, and
+    dl adopts a running daemon rather than restarting it."""
+    from dl import cli
+    from dl.routing import OTHER
+
+    options = cli.add_options(sandbox_cfg, cli.Resolution(tmp_path, OTHER))
+    assert options["seed-time"] == "0"
+
+
+def test_the_arguments_a_daemon_started_with_are_remembered(tmp_path):
+    from dl import config, daemon
+
+    args = daemon.aria2_args(config.defaults(), tmp_path, 6810, "secret")
+    assert daemon.args_signature(args) == daemon.args_signature(list(args))
+    assert daemon.args_signature(args) != daemon.args_signature(args + ["--enable-dht=true"])
+
+
+def test_a_daemon_with_the_arguments_it_wanted_is_left_alone(tmp_path, monkeypatch):
+    """Restarting on every command would be worse than the problem."""
+    from dl import config, daemon
+
+    cfg = config.defaults()
+    daemon.write_signature(tmp_path, daemon.args_signature(daemon.aria2_args(cfg, tmp_path, daemon.PORT, "s")))
+    restarted = []
+    monkeypatch.setattr(daemon, "_spawn", lambda *a: restarted.append(1))
+
+    class Idle:
+        def tell_active(self):
+            return []
+
+        def tell_waiting(self):
+            return []
+
+    assert daemon.restart_if_stale(cfg, tmp_path, "s", Idle()) is False
+    assert restarted == []
+
+
+def test_a_daemon_started_before_a_setting_existed_is_restarted(tmp_path, monkeypatch):
+    """The DHT cannot be turned on over RPC, so a daemon that predates it never
+    gets it however long dl runs."""
+    from dl import config, daemon
+
+    daemon.write_signature(tmp_path, "from-an-older-dl")
+    daemon.write_pid(tmp_path, 4242)
+    restarted = []
+    monkeypatch.setattr(daemon, "_terminate", lambda pid, wait=5.0: None)
+    monkeypatch.setattr(daemon, "_wait_bindable", lambda port, timeout: True)
+    monkeypatch.setattr(daemon, "_spawn", lambda *a: restarted.append(1))
+    monkeypatch.setattr(daemon, "_await_rpc", lambda *a: True)
+
+    class Idle:
+        def tell_active(self):
+            return []
+
+        def tell_waiting(self):
+            return []
+
+    assert daemon.restart_if_stale(config.defaults(), tmp_path, "s", Idle()) is True
+    assert restarted == [1]
+
+
+def test_a_busy_daemon_is_never_restarted_under_a_download(tmp_path, monkeypatch):
+    from dl import config, daemon
+
+    daemon.write_signature(tmp_path, "from-an-older-dl")
+    restarted = []
+    monkeypatch.setattr(daemon, "_spawn", lambda *a: restarted.append(1))
+
+    class Busy:
+        def tell_active(self):
+            return [{"gid": "g1"}]
+
+        def tell_waiting(self):
+            return []
+
+    assert daemon.restart_if_stale(config.defaults(), tmp_path, "s", Busy()) is False
+    assert restarted == []
+
+
+def test_an_unreachable_daemon_is_not_restarted_from_here(tmp_path, monkeypatch):
+    from dl import config, daemon
+    from dl.rpc import Aria2Unreachable
+
+    daemon.write_signature(tmp_path, "older")
+    restarted = []
+    monkeypatch.setattr(daemon, "_spawn", lambda *a: restarted.append(1))
+
+    class Gone:
+        def tell_active(self):
+            raise Aria2Unreachable("refused")
+
+        def tell_waiting(self):
+            return []
+
+    assert daemon.restart_if_stale(config.defaults(), tmp_path, "s", Gone()) is False
+    assert restarted == []
+
+
+def test_spawning_records_the_signature(tmp_path, monkeypatch):
+    from dl import config, daemon
+
+    monkeypatch.setattr(daemon.subprocess, "Popen", lambda *a, **k: type("P", (), {"pid": 7})())
+    cfg = config.defaults()
+    daemon._spawn(cfg, tmp_path, daemon.PORT, "s")
+    wanted = daemon.args_signature(daemon.aria2_args(cfg, tmp_path, daemon.PORT, "s"))
+    assert daemon.read_signature(tmp_path) == wanted

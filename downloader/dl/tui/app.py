@@ -716,15 +716,16 @@ class DlApp(App):
             self.deleting.delete_row(row)
 
 
-def run_tui(cfg: Config, client, state=STATE_DIR) -> int:
+def run_tui(cfg: Config, client, state: Path | None = None) -> int:
     """One dashboard at a time.
 
     Two would each act on the same queue from their own idea of what is in it,
     and the second to refresh would undo what the first had just done.
     """
-    if not instance.acquire(state):
+    where = state or STATE_DIR
+    if not instance.acquire(where):
         print(
-            f"dl is already running (pid {instance.holder(state)}) — "
+            f"dl is already running (pid {instance.holder(where)}) — "
             f"switch to that window, or `dl kill` to stop everything",
             file=sys.stderr,
         )
@@ -732,5 +733,5 @@ def run_tui(cfg: Config, client, state=STATE_DIR) -> int:
     try:
         DlApp(cfg, client).run()
     finally:
-        instance.release(state)
+        instance.release(where)
     return 0

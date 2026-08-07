@@ -99,17 +99,27 @@ def drop_control_file(path: Path) -> bool:
         return False
 
 
-def relocate(path: Path, cfg: Config, url: str) -> Path:
+def relocate(path: Path, cfg: Config, url: str, by_content: bool = False) -> Path:
     """Correct the destination when the real filename routes elsewhere.
 
     A file sitting outside the directory URL-based routing chose was pinned by
     -d or the picker, so it is left alone.
+
+    by_content is for a torrent, whose destination was settled from a magnet or
+    a .torrent filename before anyone knew what was inside. Comparing against
+    URL routing there asks whether it is already where its own contents belong,
+    which is the question this is supposed to answer — so the only thing that
+    can have pinned it is -d, and that shows as anywhere but the default.
     """
     if not path.exists():
         return path
-    routed = routing.resolve(url, routing.filename_from_url(url), cfg).path
-    if path.parent != routed:
-        return path
+    if by_content:
+        if path.parent != cfg.general.default_dir:
+            return path
+    else:
+        routed = routing.resolve(url, routing.filename_from_url(url), cfg).path
+        if path.parent != routed:
+            return path
     target_dir = routing.resolve(url, path.name, cfg).path
     if target_dir == path.parent:
         return path
@@ -281,7 +291,9 @@ def main(argv: list[str] | None = None) -> int:
         if mode == "complete" and record["path"]:
             original = Path(record["path"])
             drop_control_file(original)
-            final = relocate(original, cfg, record["url"])
+            final = relocate(
+                original, cfg, record["url"], by_content=torrent.is_torrent_status(status)
+            )
             drop_control_file(final)
             record["path"] = str(final)
         history.append(record, state / "history.jsonl")

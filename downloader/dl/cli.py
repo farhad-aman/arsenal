@@ -33,6 +33,10 @@ def add_options(
         "split": str(cfg.limits.splits),
         "min-split-size": cfg.limits.min_split,
         "max-download-limit": cfg.limits.per_download,
+        # Per download rather than left to the daemon: dl adopts a running
+        # daemon rather than restarting it, so one started before torrents
+        # existed would seed to 1:1 and sit at 100% looking stuck.
+        "seed-time": "0",
     }
     if digest:
         options["checksum"] = digest

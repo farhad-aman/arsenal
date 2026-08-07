@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import secrets
@@ -236,8 +237,52 @@ def _wait_bindable(port: int, timeout: float) -> bool:
         time.sleep(0.1)
 
 
+def args_signature(args: list[str]) -> str:
+    return hashlib.sha1("\n".join(args).encode()).hexdigest()
+
+
+def read_signature(state: Path) -> str:
+    try:
+        return (state / "args.sha").read_text().strip()
+    except OSError:
+        return ""
+
+
+def write_signature(state: Path, value: str) -> None:
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "args.sha").write_text(value)
+
+
+def restart_if_stale(cfg: Config, state: Path, secret: str, client) -> bool:
+    """Restart a daemon still running on arguments dl no longer asks for.
+
+    A daemon keeps what it started with, and most of these cannot be changed
+    over RPC — the DHT could not be switched on for a daemon that predates it
+    however long dl ran. Adopting one is the normal path, so without this a
+    setting added today reaches a machine only when something else happens to
+    stop the daemon.
+
+    Only while nothing is in flight. ensure_running is called by every command,
+    so the next idle moment takes care of it.
+    """
+    wanted = args_signature(aria2_args(cfg, state, PORT, secret))
+    if wanted == read_signature(state):
+        return False
+    try:
+        if client.tell_active() or client.tell_waiting():
+            return False
+    except (Aria2Error, Aria2Unreachable):
+        return False
+    _terminate(read_pid(state))
+    if not _wait_bindable(PORT, 5.0):
+        return False
+    _spawn(cfg, state, PORT, secret)
+    return _await_rpc(PORT, secret, 5.0)
+
+
 def _spawn(cfg: Config, state: Path, port: int, secret: str) -> None:
     state.mkdir(parents=True, exist_ok=True)
+    write_signature(state, args_signature(aria2_args(cfg, state, port, secret)))
     with open(state / "spawn.log", "wb") as log:
         process = subprocess.Popen(
             aria2_args(cfg, state, port, secret),
@@ -344,15 +389,18 @@ def _retire_wanderer(state: Path, secret: str) -> None:
     _wait_bindable(previous, 5.0)
 
 
-def ensure_running(cfg: Config, state: Path = STATE_DIR) -> Aria2:
+def ensure_running(cfg: Config, state: Path | None = None) -> Aria2:
     if shutil.which("aria2c") is None:
         raise Aria2Missing("aria2c not found — brew install aria2")
 
+    state = STATE_DIR if state is None else state
     secret = read_secret(state)
 
     if _probe(PORT, secret) == "ours":
         write_port(state, PORT)
-        return Aria2("127.0.0.1", PORT, secret, state=state)
+        client = Aria2("127.0.0.1", PORT, secret, state=state)
+        restart_if_stale(cfg, state, secret, client)
+        return client
 
     _retire_wanderer(state, secret)
 

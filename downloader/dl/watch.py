@@ -140,7 +140,7 @@ def run(
     interval: float = 0.8,
     reader=None,
     iterations: int | None = None,
-    state: Path = STATE_DIR,
+    state: Path | None = None,
 ) -> int:
     """Queue whatever URL is copied, until stopped.
 
@@ -148,7 +148,8 @@ def run(
     until told otherwise and queues downloads while it does, which makes it a
     copy of dl rather than one of its commands.
     """
-    if not instance.acquire(state):
+    where = state or STATE_DIR
+    if not instance.acquire(where):
         print(
             f"dl is already running (pid {instance.holder(state)})",
             file=sys.stderr,
@@ -157,7 +158,7 @@ def run(
     try:
         return _watch(cfg, client, interval, reader, iterations)
     finally:
-        instance.release(state)
+        instance.release(where)
 
 
 QUEUE_SWEEP = 5.0
