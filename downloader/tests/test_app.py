@@ -1137,7 +1137,7 @@ async def test_adding_a_listed_domain_from_the_dashboard_proxies_it(cfg, monkeyp
     app = DlApp(config.replace(cfg, proxy_domains=("blocked.com",)), client)
     async with app.run_test() as pilot:
         await pilot.pause()
-        app._queue_next(["https://blocked.com/a.iso"], 0)
+        app.queueing.add(["https://blocked.com/a.iso"])
         await pilot.pause()
     assert client.add_calls[0][1]["all-proxy"] == cfg.proxy
 
@@ -1148,7 +1148,7 @@ async def test_adding_an_unlisted_domain_from_the_dashboard_stays_direct(cfg):
     app = DlApp(cfg, client)
     async with app.run_test() as pilot:
         await pilot.pause()
-        app._queue_next(["https://open.com/a.iso"], 0)
+        app.queueing.add(["https://open.com/a.iso"])
         await pilot.pause()
     assert "all-proxy" not in client.add_calls[0][1]
 

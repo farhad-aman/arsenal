@@ -1,4 +1,3 @@
-import asyncio
 import subprocess
 import sys
 import time
@@ -13,8 +12,6 @@ from textual.widgets import Static
 from .. import (
     cli,
     config,
-    duplicates,
-    history,
     instance,
     routing,
     search,
@@ -26,13 +23,13 @@ from .. import (
     ytqueue,
 )
 from ..config import CONFIG_FILE, STATE_DIR, Config
-from ..destinations import ensure_writable
-from ..format import human_bytes
 from ..rpc import Aria2Error, Aria2Unreachable
 from .chrome import CSS, DONE_KEYS, HINT, HINT_DONE, HINT_KEYS, render_hint, splash
 from .completed import CompletedTable, record_path
+from .deleting import Deleting
+from .queueing import Queueing
 from . import ytadd, ytflow
-from .modals import AddUrlModal, DeleteModal, DuplicateModal, SpeedLimitModal, write_clipboard
+from .modals import AddUrlModal, SpeedLimitModal, write_clipboard
 from .searchbar import INPUT_ID, NOTE_ID, SearchCancelled, SearchInput, SearchNote, empty_note
 from .status import StatusBar, stats_from
 from .table import DownloadTable, is_youtube_row, row_from_job, row_from_status
@@ -100,6 +97,8 @@ class DlApp(App):
         self.youtube_adder = None
         self.search_note = SearchNote(self.theme_data, id=NOTE_ID)
         self.search_input: SearchInput | None = None
+        self.queueing = Queueing(self, cfg, client, self.history_log)
+        self.deleting = Deleting(self, client, STATE_DIR, self.history_log)
 
     def get_css_variables(self) -> dict[str, str]:
         """Textual's stock palette is blue and orange, which is why the modals
@@ -410,7 +409,7 @@ class DlApp(App):
         self.table.expanded = not self.table.expanded
         self.table.refresh_view()
 
-    def _rpc(self, what: str, call) -> bool:
+    def rpc(self, what: str, call) -> bool:
         """One aria2 call, with a refusal reported rather than raised.
 
         A download that finishes between the poll and the keypress is gone by
@@ -431,9 +430,9 @@ class DlApp(App):
         if is_youtube_row(row):
             self._toggle_youtube(row)
         elif row.status == "paused":
-            self._rpc(f"could not resume {row.name}", lambda: self.client.unpause(row.gid))
+            self.rpc(f"could not resume {row.name}", lambda: self.client.unpause(row.gid))
         else:
-            self._rpc(f"could not pause {row.name}", lambda: self.client.pause(row.gid))
+            self.rpc(f"could not pause {row.name}", lambda: self.client.pause(row.gid))
 
     def action_pause_all(self) -> None:
         refused = 0
@@ -511,7 +510,7 @@ class DlApp(App):
                 severity="warning",
             )
             return
-        self._rpc(
+        self.rpc(
             f"could not move {row.name}",
             lambda: self.client.change_position(row.gid, offset, "POS_CUR"),
         )
@@ -626,8 +625,8 @@ class DlApp(App):
             return
         # After, not alongside: a duplicate question about a direct URL is
         # already on screen, and the quality picker would land on top of it.
-        self._queue_next(
-            direct, 0, (lambda: self._add_youtube(watches)) if watches else None
+        self.queueing.add(
+            direct, (lambda: self._add_youtube(watches)) if watches else None
         )
 
     def _add_youtube(self, urls: list[str]) -> None:
@@ -685,87 +684,6 @@ class DlApp(App):
     def _filter_jobs(self, jobs: list[dict]) -> list[dict]:
         return jobs
 
-    def _in_flight(self) -> list[dict]:
-        try:
-            return list(self.client.tell_active()) + list(self.client.tell_waiting())
-        except (Aria2Error, Aria2Unreachable):
-            return []
-
-    def _queue_next(self, urls: list[str], index: int, after=None) -> None:
-        """Queue one URL at a time so a collision can be asked about before the
-        next one is considered."""
-        if index >= len(urls):
-            if after is not None:
-                after()
-            return
-        url = urls[index]
-        name = routing.filename_from_url(url)
-        resolution = routing.resolve(url, name, self.cfg)
-        target = resolution.path / name if name else None
-        collision = duplicates.detect(
-            url, target, history.tail(self.history_log, 200), self._in_flight()
-        )
-        if collision is None:
-            self._queue_one(url, resolution, None, target)
-            self._queue_next(urls, index + 1, after)
-            return
-
-        def decided(choice: str | None) -> None:
-            """Escape declines this one and moves on — the dashboard has no
-            batch to abandon."""
-            if choice is not None:
-                self._queue_one(url, resolution, choice, target)
-            self._queue_next(urls, index + 1, after)
-
-        self.push_screen(
-            DuplicateModal(name or url, collision, human_bytes(collision.size)), decided
-        )
-
-    def _queue_one(self, url: str, resolution, decision: str | None, target: Path | None) -> None:
-        if decision == duplicates.SKIP:
-            self.notify(f"skipped {resolution.path.name or url}")
-            return
-        if not ensure_writable(resolution.path):
-            # An unmounted drive or a read-only volume, which the picker and
-            # the command line both check for and the dashboard did not.
-            self.notify(f"cannot write to {resolution.path}", severity="error")
-            return
-        options = cli.add_options(
-            self.cfg,
-            resolution,
-            routing.through_proxy(url, self.cfg),
-            decision,
-            routing.header_lines(routing.headers_for(url, self.cfg)),
-        )
-        if decision == duplicates.OVERWRITE and target is not None:
-            self.run_worker(self._replace(url, options, target))
-            return
-        self._rpc(
-            f"could not queue {resolution.path.name or url}",
-            lambda: self.client.add_uri([url], options),
-        )
-
-    async def _replace(self, url: str, options: dict, target: Path) -> None:
-        """Clear the old download out before the replacement starts, so aria2
-        cannot resurrect its control file on top of the new one."""
-        gid = next(
-            (
-                item.get("gid", "")
-                for item in self._in_flight()
-                if duplicates.path_of(item) == target
-            ),
-            "",
-        )
-        if gid:
-            try:
-                self.client.remove(gid)
-            except (Aria2Error, Aria2Unreachable):
-                pass
-            await self._settle_then_unlink(gid, target)
-        else:
-            self._unlink(target)
-        self._rpc(f"could not queue {target.name}", lambda: self.client.add_uri([url], options))
-
     def action_limit(self) -> None:
         row = self._selected()
         if row is None:
@@ -778,7 +696,7 @@ class DlApp(App):
             if rate is None:
                 return
             value = config.parse_rate(rate)
-            changed = self._rpc(
+            changed = self.rpc(
                 f"could not set a limit on {row.name}",
                 lambda: self.client.change_option(row.gid, {"max-download-limit": value}),
             )
@@ -789,103 +707,13 @@ class DlApp(App):
 
     def action_delete(self) -> None:
         if self.showing_completed:
-            self._delete_completed()
-        else:
-            self._delete_active()
-
-    def _unlink(self, path) -> None:
-        if not path.name:
+            record = self.completed.selected
+            if record is not None:
+                self.deleting.delete_record(record, self._reload_completed)
             return
-        for target in (path, path.with_name(path.name + ".aria2")):
-            try:
-                target.unlink()
-            except OSError:
-                pass
-
-    async def _settle_then_unlink(self, gid: str, path: Path) -> None:
-        """aria2 rewrites the control file while winding a download down, so a
-        sidecar deleted the instant remove() returns comes straight back."""
-        deadline = time.monotonic() + SETTLE_TIMEOUT
-        while time.monotonic() < deadline:
-            try:
-                status = self.client.tell_status(gid).get("status", "")
-            except (Aria2Error, Aria2Unreachable):
-                break
-            if status in SETTLED:
-                cli.forget_result(self.client, gid)
-                break
-            await asyncio.sleep(0.05)
-        self._unlink(path)
-
-    def _delete_youtube(self, row) -> None:
-        job_file = STATE_DIR / "yt" / f"{row.gid}.json"
-        has_file = bool(row.path.name) and row.path.is_file()
-
-        def chosen(choice: str | None) -> None:
-            if choice is None:
-                return
-            for job in ytjob.list_jobs(STATE_DIR / "yt"):
-                if job.get("id") != row.gid:
-                    continue
-                if ytjob.running(job.get("pid", 0)):
-                    ytjob.stop(job)
-                # Fragments sit outside the destination folder, so deleting the
-                # record is the last chance anything has to notice them.
-                ytjob.clean_scratch(STATE_DIR / "yt", job)
-            job_file.unlink(missing_ok=True)
-            job_file.with_suffix(".log").unlink(missing_ok=True)
-            if choice == "disk" and has_file:
-                self._unlink(row.path)
-            self.notify(f"removed {row.name or row.gid}")
-
-        self.push_screen(DeleteModal(row.name or row.gid, has_file), chosen)
-
-    def _delete_active(self) -> None:
         row = self._selected()
-        if row is None:
-            return
-        if is_youtube_row(row):
-            self._delete_youtube(row)
-            return
-        has_file = bool(row.path.name) and row.path.exists()
-
-        def chosen(choice: str | None) -> None:
-            if choice is None:
-                return
-            try:
-                self.client.remove(row.gid)
-            except (Aria2Error, Aria2Unreachable):
-                pass
-            if choice == "disk" and row.path.name:
-                self.run_worker(self._settle_then_unlink(row.gid, row.path))
-                self.notify(f"deleted {row.name}")
-            else:
-                # Deleting the file waits for aria2 to let go of it, and the
-                # result cannot be forgotten until then.
-                cli.forget_result(self.client, row.gid)
-
-        self.push_screen(DeleteModal(row.name or row.gid, has_file), chosen)
-
-    def _delete_completed(self) -> None:
-        record = self.completed.selected
-        if record is None:
-            return
-        path = record_path(record)
-        has_file = bool(path and path.exists())
-
-        def chosen(choice: str | None) -> None:
-            if choice is None:
-                return
-            history.remove_entry(self.history_log, record)
-            if choice == "disk" and path:
-                self._unlink(path)
-            self._reload_completed()
-            self.notify(
-                f"removed {record.get('name', '')}"
-                + (" and its file" if choice == "disk" else " from the list")
-            )
-
-        self.push_screen(DeleteModal(record.get("name", "") or "entry", has_file), chosen)
+        if row is not None:
+            self.deleting.delete_row(row)
 
 
 def run_tui(cfg: Config, client, state=STATE_DIR) -> int:

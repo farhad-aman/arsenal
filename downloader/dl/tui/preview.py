@@ -8,6 +8,7 @@ from ..format import human_bytes, human_duration, human_speed
 from ..theme import glyph, select
 from .app import DlApp
 from .modals import DuplicateModal
+from .queueing import in_flight
 from .picker import CancelAll, PickerScreen
 
 RUNNING = ("active", "waiting")
@@ -148,7 +149,7 @@ class PreviewApp(DlApp):
             item.url,
             self._target_for(index),
             history.tail(self.history_log, 200),
-            self._in_flight(),
+            in_flight(self.client),
         )
         if collision is None:
             self.decisions.append(None)
