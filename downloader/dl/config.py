@@ -161,10 +161,21 @@ def _limits_from(raw: dict) -> Limits:
     )
 
 
-def _categories_from(raw: dict) -> dict[str, Category]:
-    cats = dict(DEFAULT_CATEGORIES)
+def _categories_from(raw: dict | None) -> dict[str, Category]:
+    """The categories this config asks for.
+
+    A [categories] table is the whole list, not a set of edits to the built-in
+    eight. Merging meant a name left out read as "use the default", so deleting
+    one in settings looked like it worked and came back on the next start.
+
+    No table at all still means the defaults — that is a config that has never
+    said anything about categories, not one that asked for none.
+    """
+    if raw is None:
+        return dict(DEFAULT_CATEGORIES)
+    cats: dict[str, Category] = {}
     for name, body in raw.items():
-        base = cats.get(name)
+        base = DEFAULT_CATEGORIES.get(name)
         cats[name] = _cat(
             name,
             body.get("dir", str(base.dir) if base else "~/Downloads"),
@@ -185,7 +196,7 @@ def load(path: Path | None = None) -> Config:
         return Config(
             general=_general_from(raw.get("general", {})),
             limits=_limits_from(raw.get("limits", {})),
-            categories=_categories_from(raw.get("categories", {})),
+            categories=_categories_from(raw.get("categories")),
             domains={str(k).lower(): str(v) for k, v in raw.get("domains", DEFAULT_DOMAINS).items()},
             proxy=str(raw.get("proxy", {}).get("url", DEFAULT_PROXY)),
             proxy_domains=tuple(

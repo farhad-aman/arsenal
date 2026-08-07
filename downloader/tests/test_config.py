@@ -77,7 +77,9 @@ def test_user_category_replaces_default_of_same_name(tmp_path):
     cfg = config.load(p)
     assert cfg.categories["video"].dir.name == "Vids"
     assert cfg.categories["video"].ext == ("mkv",)
-    assert "iso" in cfg.categories
+    # The table is the list. Naming only video is asking for only video —
+    # anything else would make a deleted category impossible to express.
+    assert set(cfg.categories) == {"video"}
 
 
 def test_extensions_are_lowercased_and_stripped_of_dots(tmp_path):
@@ -239,3 +241,41 @@ def test_the_written_default_config_mentions_the_collection_limit(tmp_path):
     config.write_default(path)
     assert "newest" in path.read_text()
     assert config.load(path).newest == 100
+
+
+def test_a_deleted_category_stays_deleted(tmp_path):
+    """Removing one in settings used to look like it worked and then come back:
+    the file was read as changes to the built-in eight, so leaving a name out
+    meant "use the default" rather than "I do not want this"."""
+    path = tmp_path / "config.toml"
+    config.write_default(path)
+    text = path.read_text()
+    start = text.index("[categories.iso]")
+    end = text.index("[categories.archive]")
+    path.write_text(text[:start] + text[end:])
+
+    loaded = config.load(path)
+    assert "iso" not in loaded.categories
+    assert "video" in loaded.categories
+
+
+def test_a_config_with_no_categories_section_still_gets_the_defaults(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[general]\nmax_concurrent = 2\n')
+    assert set(config.load(path).categories) == set(config.DEFAULT_CATEGORIES)
+
+
+def test_an_empty_categories_section_means_no_categories(tmp_path):
+    """Deleting the last one is a choice, not a mistake to undo."""
+    path = tmp_path / "config.toml"
+    path.write_text('[general]\nmax_concurrent = 2\n\n[categories]\n')
+    assert config.load(path).categories == {}
+
+
+def test_a_kept_category_still_takes_its_defaults_for_missing_fields(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[categories.video]\ndir = "~/Elsewhere"\n')
+    video = config.load(path).categories["video"]
+    assert str(video.dir).endswith("Elsewhere")
+    assert "mkv" in video.ext
+    assert video.icon == config.DEFAULT_CATEGORIES["video"].icon
