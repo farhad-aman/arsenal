@@ -2,7 +2,7 @@ import asyncio
 import time
 from pathlib import Path
 
-from .. import cli, duplicates, history, routing
+from .. import cli, duplicates, history, routing, torrent
 from ..config import Config
 from ..destinations import ensure_writable
 from ..format import human_bytes
@@ -75,8 +75,14 @@ class Queueing:
         name = routing.filename_from_url(url)
         resolution = routing.resolve(url, name, self.cfg)
         target = resolution.path / name if name else None
-        collision = duplicates.detect(
-            url, target, history.tail(self.history_log, 200), in_flight(self.client)
+        # A torrent is a hash until the swarm says what it holds, so there
+        # is no name yet to ask about a collision with.
+        collision = (
+            None
+            if torrent.is_torrent(url)
+            else duplicates.detect(
+                url, target, history.tail(self.history_log, 200), in_flight(self.client)
+            )
         )
         if collision is None:
             self.queue_one(url, resolution, None, target)
@@ -114,6 +120,12 @@ class Queueing:
         )
         if decision == duplicates.OVERWRITE and target is not None:
             self.host.run_worker(self._replace(url, options, target))
+            return
+        if torrent.is_torrent_file(url):
+            self.host.rpc(
+                f"could not queue {Path(url).name}",
+                lambda: self.client.add_torrent(Path(url).expanduser(), options),
+            )
             return
         self.host.rpc(
             f"could not queue {resolution.path.name or url}",

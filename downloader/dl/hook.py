@@ -5,7 +5,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import config, daemon, history, routing
+from . import config, daemon, history, routing, torrent
 from .config import STATE_DIR, Config
 from .rpc import Aria2
 
@@ -24,11 +24,23 @@ def went_through_proxy(options: dict) -> bool:
     return bool(options.get("all-proxy") or options.get("http-proxy"))
 
 
+def skip_record(status: dict) -> bool:
+    """A magnet's metadata download completes in seconds and hands off to the
+    real transfer. Recording it would put a row named after a hash into the
+    history for every magnet ever added."""
+    return torrent.is_metadata(status)
+
+
 def build_record(status: dict, mode: str, cfg: Config, proxied: bool = False) -> dict:
     raw_path = _first_file(status).get("path", "")
     url = _first_uri(status)
     path = Path(raw_path) if raw_path else None
     name = path.name if path else routing.filename_from_url(url)
+    if torrent.is_torrent_status(status):
+        # One file lands as that file, several as a folder — either way the
+        # torrent names itself, and the folder is what was downloaded.
+        path = torrent.target(status, Path(status.get("dir", "") or ""))
+        name = torrent.name_of(status) or name
     total = int(status.get("totalLength", 0) or 0)
     speed = int(status.get("downloadSpeed", 0) or 0)
     resolution = routing.resolve(url, name, cfg)
@@ -234,6 +246,9 @@ def main(argv: list[str] | None = None) -> int:
             options = client.get_option(gid)
         except Exception:
             options = {}
+        if skip_record(status):
+            arm_idle_shutdown(client, cfg, state)
+            return 0
         record = build_record(status, mode, cfg, went_through_proxy(options))
         if mode == "complete" and record["path"]:
             original = Path(record["path"])

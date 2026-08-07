@@ -2,7 +2,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import duplicates, routing, search, theme
+from . import duplicates, routing, search, theme, torrent
 from .config import Config
 from .destinations import ensure_writable
 from .format import human_bytes, human_speed
@@ -132,9 +132,12 @@ def cmd_add(
             evict(client, resolution.path / name if name else resolution.path)
         via_proxy = routing.through_proxy(url, cfg, forced=proxy)
         sent = routing.header_lines(routing.headers_for(url, cfg)) + list(headers or [])
-        gids.append(
-            client.add_uri([url], add_options(cfg, resolution, via_proxy, decision, sent))
-        )
+        options = add_options(cfg, resolution, via_proxy, decision, sent)
+        if torrent.is_torrent_file(url):
+            # Already on disk, so there is nowhere for aria2 to fetch it from.
+            gids.append(client.add_torrent(Path(url).expanduser(), options))
+        else:
+            gids.append(client.add_uri([url], options))
         via = f"  {glyph('🌐', icons)} via proxy" if via_proxy else ""
         replaced = (
             f"  {glyph('♻️', icons)} overwriting" if decision == duplicates.OVERWRITE else ""

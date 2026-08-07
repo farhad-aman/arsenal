@@ -289,3 +289,63 @@ def test_the_expanded_line_carries_the_added_time_on_a_narrow_terminal(cfg, th):
     row = row_from_status(status(), cfg, started=now)
     lines = render_row(row, th, 70, selected=True, frame=0, expanded=True)
     assert time.strftime("%H:%M", time.localtime(now)) in lines[-1]
+
+
+def bt(**over):
+    base = status(
+        files=[{"path": "/tmp/ISO/debian.iso", "uris": []}],
+        bittorrent={"mode": "single", "info": {"name": "debian.iso"}},
+        dir="/tmp/ISO",
+    )
+    base.update(over)
+    return base
+
+
+def test_a_torrent_row_takes_its_name_from_the_torrent(cfg):
+    row = row_from_status(bt(), cfg)
+    assert row.name == "debian.iso"
+
+
+def test_a_multi_file_torrent_is_named_for_the_torrent_not_its_first_file(cfg):
+    row = row_from_status(
+        bt(
+            files=[{"path": f"/tmp/M/Album/track{i}.flac", "uris": []} for i in range(3)],
+            bittorrent={"mode": "multi", "info": {"name": "Album"}},
+            dir="/tmp/M",
+        ),
+        cfg,
+    )
+    assert row.name == "Album"
+
+
+def test_a_multi_file_torrent_points_at_its_folder(cfg):
+    row = row_from_status(
+        bt(
+            files=[{"path": "/tmp/M/Album/a.flac", "uris": []}],
+            bittorrent={"mode": "multi", "info": {"name": "Album"}},
+            dir="/tmp/M",
+        ),
+        cfg,
+    )
+    assert str(row.path) == "/tmp/M/Album"
+
+
+def test_a_magnet_still_fetching_its_details_says_so(cfg):
+    row = row_from_status(
+        bt(
+            files=[{"path": "/tmp/[METADATA]481b6e", "uris": []}],
+            bittorrent={"info": {"name": "[METADATA]481b6e"}},
+        ),
+        cfg,
+    )
+    assert "[METADATA]" not in row.name
+    assert "torrent" in row.name.lower()
+
+
+def test_a_single_file_torrent_still_routes_on_its_extension(cfg):
+    assert row_from_status(bt(), cfg).category.name == "iso"
+
+
+def test_a_plain_download_is_unaffected(cfg):
+    row = row_from_status(status(), cfg)
+    assert row.name == "ubuntu.iso"

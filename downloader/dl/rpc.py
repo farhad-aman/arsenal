@@ -93,7 +93,22 @@ class Aria2:
         return self._call("aria2.getVersion")
 
     def add_uri(self, uris: list[str], options: dict) -> str:
-        gid = self._call("aria2.addUri", uris, options)
+        return self._added(self._call("aria2.addUri", uris, options))
+
+    def add_torrent(self, path: Path, options: dict) -> str:
+        """Hand a .torrent from disk to the daemon.
+
+        addUri cannot: it takes somewhere to fetch from, and this is already
+        here. A .torrent behind a URL needs none of this — aria2 downloads it
+        and follows it into the transfer itself.
+        """
+        from . import torrent
+
+        return self._added(
+            self._call("aria2.addTorrent", torrent.encoded(path), [], options)
+        )
+
+    def _added(self, gid: str) -> str:
         if self.state is not None:
             from . import started
 

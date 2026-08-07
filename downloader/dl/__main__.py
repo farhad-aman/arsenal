@@ -16,6 +16,8 @@ dl — download manager
   dl -d <dir> <url>        override the destination for this download
   dl -p <url>              download through the sing-box proxy
   dl -H "Key: Value"       extra request header (repeatable)
+  dl <magnet:…>            magnet link
+  dl file.torrent          torrent file, local or over http
   --no-preview             queue and exit without attaching the live preview
   dl                       open the TUI
 

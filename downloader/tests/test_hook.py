@@ -413,3 +413,48 @@ def test_dropping_a_control_file_for_a_nameless_path_is_false():
 
     assert hook.drop_control_file(Path("")) is False
     assert hook.drop_control_file(Path(".")) is False
+
+
+def _bt_status(**over):
+    base = {
+        "gid": "g1",
+        "status": "complete",
+        "totalLength": "1000",
+        "downloadSpeed": "0",
+        "dir": "/tmp/ISO",
+        "files": [{"path": "/tmp/ISO/debian.iso", "uris": []}],
+        "bittorrent": {"mode": "single", "info": {"name": "debian.iso"}},
+    }
+    base.update(over)
+    return base
+
+
+def test_a_torrent_record_is_named_for_the_torrent(cfg):
+    record = hook.build_record(_bt_status(), "complete", cfg)
+    assert record["name"] == "debian.iso"
+
+
+def test_a_multi_file_torrent_record_is_named_for_the_torrent(cfg):
+    status = _bt_status(
+        files=[{"path": f"/tmp/M/Album/t{i}.flac", "uris": []} for i in range(3)],
+        bittorrent={"mode": "multi", "info": {"name": "Album"}},
+        dir="/tmp/M",
+    )
+    record = hook.build_record(status, "complete", cfg)
+    assert record["name"] == "Album"
+    assert record["path"] == "/tmp/M/Album"
+
+
+def test_a_magnets_metadata_is_not_a_finished_download():
+    """It completes in seconds and hands off to the real transfer. Recording it
+    would put a row named after a hash in the history for every magnet."""
+    meta = _bt_status(followedBy=["g2"], bittorrent={"info": {"name": "[METADATA]481b"}})
+    assert hook.skip_record(meta) is True
+
+
+def test_a_real_torrent_is_recorded():
+    assert hook.skip_record(_bt_status()) is False
+
+
+def test_a_plain_download_is_recorded():
+    assert hook.skip_record({"files": [{"path": "/tmp/a.iso"}]}) is False

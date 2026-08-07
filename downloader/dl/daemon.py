@@ -18,6 +18,10 @@ from .rpc import Aria2, Aria2Error, Aria2Unreachable
 # could reach and nothing knew about.
 PORT = 6810
 
+# A range rather than one port: these are the ports peers reach dl on, and the
+# first is as likely as not to be held by another torrent client.
+BT_PORTS = "6881-6889"
+
 # The paths travel as arguments rather than in the environment: nothing in the
 # environment can move dl's state, so there is nothing there for the shim to
 # set. A test daemon's hook still writes to the test's own directory because
@@ -178,6 +182,21 @@ def aria2_args(cfg: Config, state: Path, port: int, secret: str) -> list[str]:
         f"--on-download-error={error}",
         f"--log={state / 'aria2.log'}",
         "--log-level=error",
+        # BitTorrent. Downloading stops the moment the file is whole: seeding
+        # is a commitment of upstream bandwidth for an unbounded time, and dl
+        # does not make that on anyone's behalf.
+        "--seed-time=0",
+        "--follow-torrent=true",
+        # Most magnets carry no trackers at all, so without the DHT they never
+        # resolve past their metadata.
+        "--enable-dht=true",
+        "--enable-peer-exchange=true",
+        "--bt-enable-lpd=true",
+        f"--listen-port={BT_PORTS}",
+        f"--dht-listen-port={BT_PORTS}",
+        # Kept with the rest of the state so the routing table survives a
+        # restart and the next magnet resolves without rediscovering the DHT.
+        f"--dht-file-path={state / 'dht.dat'}",
     ]
     session = state / "session"
     if session.exists():

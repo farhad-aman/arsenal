@@ -4,7 +4,7 @@ from pathlib import Path
 
 from textual.widgets import Static
 
-from .. import clock
+from .. import clock, torrent
 from ..config import Category, Config
 from ..format import (
     SPINNER,
@@ -52,20 +52,32 @@ class Row:
         return (self.done * 100.0 / self.total) if self.total else 0.0
 
 
+FETCHING = "fetching torrent details…"
+
+
 def row_from_status(item: dict, cfg: Config, proxied: bool = False, started: int = 0) -> Row:
     files = item.get("files") or [{}]
     first = files[0]
     path = Path(first.get("path", "") or "")
     uris = first.get("uris") or []
     url = uris[0].get("uri", "") if uris else ""
+    name = path.name
+    if torrent.is_torrent_status(item):
+        # A multi-file torrent is a folder of parts, so the first file names a
+        # fragment of the thing rather than the thing.
+        path = torrent.target(item, Path(item.get("dir", "") or ""))
+        name = torrent.name_of(item) or path.name
+        if torrent.is_metadata(item):
+            # A magnet is a hash until the swarm hands over the torrent.
+            name = FETCHING
     total = int(item.get("totalLength", 0) or 0)
     done = int(item.get("completedLength", 0) or 0)
     speed = int(item.get("downloadSpeed", 0) or 0)
-    category = resolve(url, path.name, cfg).category if path.name or url else OTHER
+    category = resolve(url, name, cfg).category if name or url else OTHER
     eta = (total - done) // speed if speed > 0 and total > done else -1
     return Row(
         gid=item.get("gid", ""),
-        name=path.name,
+        name=name,
         status=item.get("status", ""),
         total=total,
         done=done,
