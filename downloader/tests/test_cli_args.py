@@ -142,7 +142,7 @@ def test_ls_still_takes_a_name(monkeypatch):
     monkeypatch.setattr(entry.daemon, "ensure_running", lambda *a, **k: object())
     monkeypatch.setattr(
         entry.cli, "cmd_ls",
-        lambda cfg, client, use_color, query="": seen.update(query=query) or 0,
+        lambda cfg, client, use_color, query="", as_json=False: seen.update(query=query) or 0,
     )
     assert entry.main(["ls", "ubuntu"]) == 0
     assert seen["query"] == "ubuntu"

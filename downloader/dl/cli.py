@@ -1,3 +1,4 @@
+import json
 import sys
 import time
 from pathlib import Path
@@ -155,6 +156,15 @@ LISTED_WHEN_STOPPED = ("error",)
 
 
 def _name_of(item: dict) -> str:
+    """What to call a download.
+
+    A multi-file torrent is a folder of parts, so its first file names a
+    fragment rather than the thing that was asked for.
+    """
+    if torrent.is_torrent_status(item):
+        named = torrent.name_of(item)
+        if named:
+            return named
     files = item.get("files") or [{}]
     return Path(files[0].get("path", "")).name
 
@@ -180,13 +190,55 @@ def _proxy_badge(client, gid: str, cfg: Config) -> str:
     return "  " + glyph("🌐", theme.icons_on(cfg))
 
 
-def cmd_ls(cfg: Config, client, use_color: bool, query: str = "") -> int:
+def _proxied(client, gid: str) -> bool:
+    from .hook import went_through_proxy
+
+    try:
+        return went_through_proxy(client.get_option(gid))
+    except (Aria2Error, Aria2Unreachable, AttributeError):
+        return False
+
+
+def ls_record(item: dict, client, cfg: Config) -> dict:
+    """One live download, as the shape `dl ls --json` prints.
+
+    Deliberately not aria2's own status: that carries several dozen fields of
+    which most are internal, and this has to stay readable a year from now.
+    """
+    total = int(item.get("totalLength", 0) or 0)
+    done = int(item.get("completedLength", 0) or 0)
+    files = item.get("files") or [{}]
+    path = files[0].get("path", "") or ""
+    uris = files[0].get("uris") or []
+    url = uris[0].get("uri", "") if uris else ""
+    name = _name_of(item)
+    return {
+        "gid": item.get("gid", ""),
+        "status": item.get("status", ""),
+        "name": name,
+        "percent": int(done * 100 / total) if total else 0,
+        "total": total,
+        "completed": done,
+        "speed": int(item.get("downloadSpeed", 0) or 0),
+        "connections": int(item.get("connections", 0) or 0),
+        "category": routing.resolve(url, name, cfg).category.name,
+        "path": path,
+        "url": url,
+        "proxy": _proxied(client, item.get("gid", "")),
+    }
+
+
+def cmd_ls(
+    cfg: Config, client, use_color: bool, query: str = "", as_json: bool = False
+) -> int:
     for item in search.keep(_rows(client), query, _name_of):
+        if as_json:
+            print(json.dumps(ls_record(item, client, cfg), ensure_ascii=False))
+            continue
         total = int(item.get("totalLength", 0) or 0)
         done = int(item.get("completedLength", 0) or 0)
         pct = int(done * 100 / total) if total else 0
-        files = item.get("files") or [{}]
-        name = Path(files[0].get("path", "")).name or "(pending)"
+        name = _name_of(item) or "(pending)"
         # The badge goes last so every existing column keeps its position and
         # `dl ls | grep paused` still works.
         via = _proxy_badge(client, item.get("gid", ""), cfg)

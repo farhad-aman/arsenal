@@ -21,7 +21,7 @@ dl — download manager
   --no-preview             queue and exit without attaching the live preview
   dl                       open the TUI
 
-  dl ls [name]             list downloads, optionally matching a name
+  dl ls [name]             list downloads, optionally matching a name (--json)
   dl history [n] [name]    list finished downloads (--failed, --json)
   dl pause <gid|all>       dl resume <gid|all>      dl rm <gid>
   dl watch                 queue URLs as you copy them
@@ -33,7 +33,11 @@ SUBCOMMANDS = {"ls", "history", "pause", "resume", "rm", "watch", "kill", "help"
 
 # Flags each subcommand understands. Anything else is a mistake worth saying so
 # about rather than dropping: `dl ls --failed` used to filter nothing, quietly.
-SUBCOMMAND_FLAGS = {"kill": {"--strays"}, "history": {"--failed", "--json"}}
+SUBCOMMAND_FLAGS = {
+    "kill": {"--strays"},
+    "history": {"--failed", "--json"},
+    "ls": {"--json"},
+}
 
 
 class ArgError(Exception):
@@ -150,7 +154,13 @@ def _run(args: list[str]) -> int:
 
     if command == "ls":
         query = " ".join(a for a in args[1:] if not a.startswith("-"))
-        return cli.cmd_ls(cfg, client, use_color=sys.stdout.isatty(), query=query)
+        return cli.cmd_ls(
+            cfg,
+            client,
+            use_color=sys.stdout.isatty(),
+            query=query,
+            as_json="--json" in args,
+        )
     if command == "pause":
         return cli.cmd_pause(args[1] if len(args) > 1 else "all", client)
     if command == "resume":
