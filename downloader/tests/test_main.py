@@ -135,7 +135,7 @@ def test_proxy_flag_reaches_cmd_add(monkeypatch, tmp_path):
     _wire(monkeypatch, tmp_path, True, calls)
 
     def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False,
-               decisions=None, headers=None):
+               decisions=None, headers=None, digest=""):
         seen["urls"] = urls
         seen["proxy"] = proxy
         seen["headers"] = headers
@@ -151,7 +151,7 @@ def _record_add(monkeypatch, seen):
     from dl import cli
 
     def record(urls, cfg, client, explicit_dir, chosen=None, proxy=False,
-               decisions=None, headers=None):
+               decisions=None, headers=None, digest=""):
         seen["urls"] = urls
         seen["proxy"] = proxy
         seen["headers"] = headers
@@ -325,7 +325,7 @@ def test_dash_h_is_collected_and_removed_from_the_urls(monkeypatch):
     seen = {}
 
     def fake_add(urls, cfg, client, explicit_dir, chosen=None, proxy=False,
-                 decisions=None, headers=None):
+                 decisions=None, headers=None, digest=""):
         seen["urls"] = urls
         seen["headers"] = headers
         return 0, []

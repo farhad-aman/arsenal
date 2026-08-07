@@ -3,7 +3,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import cli, config, daemon, routing, youtube
+from . import checksum, cli, config, daemon, routing, youtube
 from .config import CONFIG_FILE
 from .rpc import Aria2Error, Aria2Unreachable
 from .tui.preview import Request, run_preview
@@ -16,6 +16,7 @@ dl — download manager
   dl -d <dir> <url>        override the destination for this download
   dl -p <url>              download through the sing-box proxy
   dl -H "Key: Value"       extra request header (repeatable)
+  dl -c sha256=<hex>       verify the download against a checksum
   dl <magnet:…>            magnet link
   dl file.torrent          torrent file, local or over http
   --no-preview             queue and exit without attaching the live preview
@@ -65,6 +66,7 @@ def _add_parser() -> _Parser:
     parser.add_argument("-f", "--file", dest="url_file")
     parser.add_argument("-p", "--proxy", action="store_true")
     parser.add_argument("-H", dest="headers", action="append", default=[])
+    parser.add_argument("-c", "--checksum", dest="digest")
     parser.add_argument("--no-preview", dest="preview", action="store_false", default=True)
     return parser
 
@@ -115,12 +117,20 @@ def _run(args: list[str]) -> int:
     preview, proxy, headers = True, False, []
     explicit_dir: Path | None = None
     urls: list[str] = []
+    digest = ""
 
     if command is not None:
         _check_flags(command, args[1:])
     else:
         opts = _add_parser().parse_args(args)
         preview, proxy, headers = opts.preview, opts.proxy, opts.headers
+        if opts.digest:
+            # Checked here, because aria2 refuses a bad one with "we
+            # encountered a problem" and no word on which part was wrong.
+            try:
+                digest = checksum.normalise(opts.digest)
+            except checksum.Invalid as exc:
+                raise ArgError(f"--checksum: {exc}") from None
         explicit_dir = Path(opts.directory).expanduser() if opts.directory else None
         if opts.url_file:
             try:
@@ -189,11 +199,15 @@ def _run(args: list[str]) -> int:
         daemon.bump_generation(config.STATE_DIR)
         interactive = preview and sys.stdout.isatty()
         if not interactive:
-            rc, _gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy, headers=headers)
+            rc, _gids = cli.cmd_add(
+                urls, cfg, client, explicit_dir, proxy=proxy, headers=headers, digest=digest
+            )
             return rc
 
         if not all(cli.looks_like_url(u) for u in urls):
-            rc, gids = cli.cmd_add(urls, cfg, client, explicit_dir, proxy=proxy, headers=headers)
+            rc, gids = cli.cmd_add(
+                urls, cfg, client, explicit_dir, proxy=proxy, headers=headers, digest=digest
+            )
             if gids:
                 lines, _cancelled = run_preview(cfg, client, gids=gids)
                 for line in lines:
@@ -212,7 +226,7 @@ def _run(args: list[str]) -> int:
         def queue(chosen, decisions=None):
             rc, gids = cli.cmd_add(
                 urls, cfg, client, explicit_dir, chosen or None, proxy,
-                decisions or None, headers,
+                decisions or None, headers, digest,
             )
             outcome["rc"] = rc
             return gids

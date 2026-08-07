@@ -16,7 +16,7 @@ def wired(monkeypatch, tmp_path):
     seen = {}
 
     def fake_add(urls, cfg, client, explicit_dir=None, chosen=None, proxy=False,
-                 decisions=None, headers=None):
+                 decisions=None, headers=None, digest=""):
         seen["urls"] = list(urls)
         seen["dir"] = explicit_dir
         seen["proxy"] = proxy

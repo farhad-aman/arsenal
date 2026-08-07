@@ -5,7 +5,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import config, daemon, history, routing, torrent
+from . import checksum, config, daemon, history, routing, torrent
 from .config import STATE_DIR, Config
 from .rpc import Aria2
 
@@ -57,8 +57,33 @@ def build_record(status: dict, mode: str, cfg: Config, proxied: bool = False) ->
         "proxy": proxied,
     }
     if mode != "complete":
-        record["error"] = status.get("errorMessage") or f"code {status.get('errorCode', '?')}"
+        record["error"] = (
+            checksum.explain(status) or f"code {status.get('errorCode', '?')}"
+        )
     return record
+
+
+def discard_corrupt(status: dict) -> bool:
+    """Throw away a download that failed its checksum.
+
+    The bytes are provably not what was asked for, and aria2 leaves them
+    complete on disk with their control file — so a retry resumes a finished
+    download and changes nothing at all.
+    """
+    if not checksum.mismatched(status):
+        return False
+    raw = _first_file(status).get("path", "")
+    if not raw:
+        return False
+    path = Path(raw)
+    gone = False
+    for target in (path, path.with_name(path.name + ".aria2")):
+        try:
+            target.unlink()
+            gone = True
+        except OSError:
+            pass
+    return gone
 
 
 def drop_control_file(path: Path) -> bool:
@@ -250,6 +275,9 @@ def main(argv: list[str] | None = None) -> int:
             arm_idle_shutdown(client, cfg, state)
             return 0
         record = build_record(status, mode, cfg, went_through_proxy(options))
+        if discard_corrupt(status):
+            record["error"] = f"{checksum.MISMATCH} — the file was removed"
+            record["path"] = ""
         if mode == "complete" and record["path"]:
             original = Path(record["path"])
             drop_control_file(original)

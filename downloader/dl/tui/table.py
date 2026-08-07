@@ -4,7 +4,7 @@ from pathlib import Path
 
 from textual.widgets import Static
 
-from .. import clock, torrent
+from .. import checksum, clock, torrent
 from ..config import Category, Config
 from ..format import (
     SPINNER,
@@ -86,7 +86,7 @@ def row_from_status(item: dict, cfg: Config, proxied: bool = False, started: int
         category=category,
         path=path,
         conns=int(item.get("connections", 0) or 0),
-        error=item.get("errorMessage", "") or "",
+        error=checksum.explain(item),
         url=url,
         proxied=proxied,
         started=started,

@@ -3,7 +3,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import duplicates, routing, search, theme, torrent
+from . import checksum, duplicates, routing, search, theme, torrent
 from .config import Config
 from .destinations import ensure_writable
 from .format import human_bytes, human_speed
@@ -25,6 +25,7 @@ def add_options(
     proxy: bool = False,
     decision: str | None = None,
     headers: list[str] | None = None,
+    digest: str = "",
 ) -> dict:
     options = {
         "dir": str(resolution.path),
@@ -33,6 +34,8 @@ def add_options(
         "min-split-size": cfg.limits.min_split,
         "max-download-limit": cfg.limits.per_download,
     }
+    if digest:
+        options["checksum"] = digest
     if proxy:
         options["all-proxy"] = cfg.proxy
     if headers:
@@ -101,6 +104,7 @@ def cmd_add(
     proxy: bool = False,
     decisions: list[str | None] | None = None,
     headers: list[str] | None = None,
+    digest: str = "",
 ) -> tuple[int, list[str]]:
     if not urls:
         print("dl: no URLs given", file=sys.stderr)
@@ -133,7 +137,7 @@ def cmd_add(
             evict(client, resolution.path / name if name else resolution.path)
         via_proxy = routing.through_proxy(url, cfg, forced=proxy)
         sent = routing.header_lines(routing.headers_for(url, cfg)) + list(headers or [])
-        options = add_options(cfg, resolution, via_proxy, decision, sent)
+        options = add_options(cfg, resolution, via_proxy, decision, sent, digest)
         if torrent.is_torrent_file(url):
             # Already on disk, so there is nowhere for aria2 to fetch it from.
             gids.append(client.add_torrent(Path(url).expanduser(), options))
