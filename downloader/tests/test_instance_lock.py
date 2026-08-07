@@ -22,8 +22,8 @@ def test_the_dashboard_takes_the_lock_and_gives_it_back(cfg, tmp_path, monkeypat
     assert instance.holder(tmp_path) == 0
 
 
-def test_a_second_dashboard_is_refused(cfg, tmp_path, monkeypatch, capsys):
-    instance.acquire(tmp_path, pid=os.getpid() + 1)
+def test_a_second_dashboard_is_refused(cfg, tmp_path, monkeypatch, capsys, other_pid):
+    instance.acquire(tmp_path, pid=other_pid)
     started = []
     monkeypatch.setattr(app_module, "DlApp", lambda *a: started.append(1))
     assert app_module.run_tui(cfg, FakeClient(), tmp_path) == 1

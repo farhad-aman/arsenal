@@ -106,16 +106,16 @@ def test_the_lock_is_taken_and_released(tmp_path):
     assert instance.holder(tmp_path) == 0
 
 
-def test_a_second_dashboard_is_refused(tmp_path):
+def test_a_second_dashboard_is_refused(tmp_path, other_pid):
     instance.acquire(tmp_path)
-    other = instance.acquire(tmp_path, pid=os.getpid() + 1)
+    other = instance.acquire(tmp_path, pid=other_pid)
     assert other is False
 
 
-def test_two_starting_together_do_not_both_get_in(tmp_path):
+def test_two_starting_together_do_not_both_get_in(tmp_path, other_pid):
     """Read-then-write let both see an empty lock and both take it."""
     first = instance.acquire(tmp_path, pid=os.getpid())
-    second = instance.acquire(tmp_path, pid=os.getpid() + 1)
+    second = instance.acquire(tmp_path, pid=other_pid)
     assert [first, second] == [True, False]
     assert instance.holder(tmp_path) == os.getpid()
 
@@ -137,10 +137,10 @@ def test_a_corrupt_lock_is_taken_over(tmp_path):
     assert instance.acquire(tmp_path) is True
 
 
-def test_releasing_a_lock_we_do_not_hold_leaves_it_alone(tmp_path):
-    instance.acquire(tmp_path, pid=os.getpid() + 1)
+def test_releasing_a_lock_we_do_not_hold_leaves_it_alone(tmp_path, other_pid):
+    instance.acquire(tmp_path, pid=other_pid)
     instance.release(tmp_path)
-    assert instance.holder(tmp_path) == os.getpid() + 1
+    assert instance.holder(tmp_path) == other_pid
 
 
 def test_holder_of_a_dead_process_is_nothing(tmp_path):

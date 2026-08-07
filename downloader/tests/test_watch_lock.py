@@ -53,8 +53,8 @@ def test_watching_gives_the_lock_back(cfg, tmp_path):
     assert instance.holder(tmp_path) == 0
 
 
-def test_a_second_watcher_is_refused(cfg, tmp_path, capsys):
-    instance.acquire(tmp_path, pid=os.getpid() + 1)
+def test_a_second_watcher_is_refused(cfg, tmp_path, capsys, other_pid):
+    instance.acquire(tmp_path, pid=other_pid)
     polled = []
     assert (
         watch.run(
@@ -71,19 +71,19 @@ def test_a_second_watcher_is_refused(cfg, tmp_path, capsys):
     assert "already running" in capsys.readouterr().err
 
 
-def test_watching_is_refused_while_a_dashboard_is_open(cfg, tmp_path, capsys):
+def test_watching_is_refused_while_a_dashboard_is_open(cfg, tmp_path, capsys, other_pid):
     """One lock, so it does not matter which door was used first."""
-    instance.acquire(tmp_path, pid=os.getpid() + 1)
+    instance.acquire(tmp_path, pid=other_pid)
     assert watch.run(cfg, Client(), interval=0, reader=lambda: "", iterations=1, state=tmp_path) == 1
 
 
-def test_another_process_cannot_start_anything_while_watching(cfg, tmp_path):
+def test_another_process_cannot_start_anything_while_watching(cfg, tmp_path, other_pid):
     """One lock, so it does not matter which door was used first. Reentrance
     from the same pid is deliberate — these are always separate processes."""
     refused = []
 
     def poll():
-        refused.append(instance.acquire(tmp_path, pid=os.getpid() + 1))
+        refused.append(instance.acquire(tmp_path, pid=other_pid))
         return ""
 
     watch.run(cfg, Client(), interval=0, reader=poll, iterations=1, state=tmp_path)

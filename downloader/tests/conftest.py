@@ -1,9 +1,28 @@
 import asyncio
 import inspect
+import subprocess
+import sys
 
 import pytest
 
 from dl import config
+
+
+@pytest.fixture
+def other_pid():
+    """A pid that is certainly alive and certainly not this process.
+
+    os.getpid() + 1 was a guess. When nothing happens to hold that number the
+    lock names a dead process, every "a second instance is refused" test takes
+    the stale-takeover path instead, and the suite fails on machines where the
+    guess does not land.
+    """
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
+    try:
+        yield proc.pid
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
 
 
 def pytest_pyfunc_call(pyfuncitem):

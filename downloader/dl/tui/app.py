@@ -533,6 +533,20 @@ class DlApp(App):
         self.table.expanded = not self.table.expanded
         self.table.refresh_view()
 
+    def _rpc(self, what: str, call) -> bool:
+        """One aria2 call, with a refusal reported rather than raised.
+
+        A download that finishes between the poll and the keypress is gone by
+        the time aria2 is asked about it, and an unhandled rejection takes the
+        whole dashboard down.
+        """
+        try:
+            call()
+        except (Aria2Error, Aria2Unreachable) as exc:
+            self.notify(f"{what}: {exc}", severity="warning")
+            return False
+        return True
+
     def action_toggle(self) -> None:
         row = self._selected()
         if row is None:
@@ -540,24 +554,43 @@ class DlApp(App):
         if is_youtube_row(row):
             self._toggle_youtube(row)
         elif row.status == "paused":
-            self.client.unpause(row.gid)
+            self._rpc(f"could not resume {row.name}", lambda: self.client.unpause(row.gid))
         else:
-            self.client.pause(row.gid)
+            self._rpc(f"could not pause {row.name}", lambda: self.client.pause(row.gid))
 
     def action_pause_all(self) -> None:
+        refused = 0
         for row in self.table.rows:
             if is_youtube_row(row):
                 self._pause_youtube(row)
-            else:
+                continue
+            try:
                 self.client.pause(row.gid)
+            except (Aria2Error, Aria2Unreachable):
+                refused += 1
+        self._note_refusals(refused, "pause")
 
     def action_resume_all(self) -> None:
+        refused = 0
         for row in self.table.rows:
             if is_youtube_row(row):
                 if row.status == "paused":
                     self._resume_youtube(row)
-            else:
+                continue
+            try:
                 self.client.unpause(row.gid)
+            except (Aria2Error, Aria2Unreachable):
+                refused += 1
+        self._note_refusals(refused, "resume")
+
+    def _note_refusals(self, count: int, verb: str) -> None:
+        """One message however many rows refused — a queue that lost its daemon
+        should not post a warning per row."""
+        if count:
+            self.notify(
+                f"could not {verb} {count} download{'' if count == 1 else 's'}",
+                severity="warning",
+            )
 
     def _job_for(self, row) -> dict | None:
         return next(
@@ -601,12 +634,10 @@ class DlApp(App):
                 severity="warning",
             )
             return
-        try:
-            self.client.change_position(row.gid, offset, "POS_CUR")
-        except (Aria2Error, Aria2Unreachable) as exc:
-            # A download that finished between the poll and the keypress is
-            # gone by the time aria2 is asked to move it.
-            self.notify(f"could not move {row.name}: {exc}", severity="warning")
+        self._rpc(
+            f"could not move {row.name}",
+            lambda: self.client.change_position(row.gid, offset, "POS_CUR"),
+        )
 
     def action_copy_url(self) -> None:
         self._copy(self._selected_url(), "URL")
@@ -828,7 +859,10 @@ class DlApp(App):
         if decision == duplicates.OVERWRITE and target is not None:
             self.run_worker(self._replace(url, options, target))
             return
-        self.client.add_uri([url], options)
+        self._rpc(
+            f"could not queue {resolution.path.name or url}",
+            lambda: self.client.add_uri([url], options),
+        )
 
     async def _replace(self, url: str, options: dict, target: Path) -> None:
         """Clear the old download out before the replacement starts, so aria2
@@ -849,7 +883,7 @@ class DlApp(App):
             await self._settle_then_unlink(gid, target)
         else:
             self._unlink(target)
-        self.client.add_uri([url], options)
+        self._rpc(f"could not queue {target.name}", lambda: self.client.add_uri([url], options))
 
     def action_limit(self) -> None:
         row = self._selected()
@@ -863,8 +897,12 @@ class DlApp(App):
             if rate is None:
                 return
             value = config.parse_rate(rate)
-            self.client.change_option(row.gid, {"max-download-limit": value})
-            self.notify(f"{row.name}: limit {'off' if value == '0' else value}")
+            changed = self._rpc(
+                f"could not set a limit on {row.name}",
+                lambda: self.client.change_option(row.gid, {"max-download-limit": value}),
+            )
+            if changed:
+                self.notify(f"{row.name}: limit {'off' if value == '0' else value}")
 
         self.push_screen(SpeedLimitModal(self.cfg.limits.per_download), apply)
 

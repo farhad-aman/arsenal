@@ -14,8 +14,8 @@ def cfg(sandbox_cfg):
     return sandbox_cfg
 
 
-def test_the_preview_stands_down_while_a_dashboard_is_open(cfg, tmp_path, monkeypatch):
-    instance.acquire(tmp_path, pid=os.getpid() + 1)
+def test_the_preview_stands_down_while_a_dashboard_is_open(cfg, tmp_path, monkeypatch, other_pid):
+    instance.acquire(tmp_path, pid=other_pid)
     started = []
     monkeypatch.setattr(preview_module, "PreviewApp", lambda *a: started.append(1))
     lines, cancelled = preview_module.run_preview(cfg, FakeClient(), state=tmp_path)
@@ -24,10 +24,10 @@ def test_the_preview_stands_down_while_a_dashboard_is_open(cfg, tmp_path, monkey
     assert "queued" in lines[0]
 
 
-def test_standing_down_does_not_undo_the_download(cfg, tmp_path, monkeypatch):
+def test_standing_down_does_not_undo_the_download(cfg, tmp_path, monkeypatch, other_pid):
     """The URL is already with aria2 by this point. Refusing here would only
     hide it, not stop it."""
-    instance.acquire(tmp_path, pid=os.getpid() + 1)
+    instance.acquire(tmp_path, pid=other_pid)
     lines, cancelled = preview_module.run_preview(cfg, FakeClient(), state=tmp_path)
     assert cancelled is False
 
@@ -72,7 +72,7 @@ def test_the_lock_is_given_back_even_if_the_preview_raises(cfg, tmp_path, monkey
 
 
 def test_another_process_cannot_start_a_dashboard_while_a_preview_is_up(
-    cfg, tmp_path, monkeypatch
+    cfg, tmp_path, monkeypatch, other_pid
 ):
     """One lock, both doors. Reentrance from the same pid is deliberate — a
     preview and a dashboard are always separate processes."""
@@ -83,19 +83,19 @@ def test_another_process_cannot_start_a_dashboard_while_a_preview_is_up(
         results = []
 
         def run(self):
-            refused.append(instance.acquire(tmp_path, pid=os.getpid() + 1))
+            refused.append(instance.acquire(tmp_path, pid=other_pid))
 
     monkeypatch.setattr(preview_module, "PreviewApp", lambda *a: Stub())
     preview_module.run_preview(cfg, FakeClient(), state=tmp_path)
     assert refused == [False]
 
 
-def test_the_youtube_flow_refuses_while_a_dashboard_is_open(cfg, tmp_path, monkeypatch):
+def test_the_youtube_flow_refuses_while_a_dashboard_is_open(cfg, tmp_path, monkeypatch, other_pid):
     """It opens a full screen and nothing is queued yet, so it points at the
     window that can add it rather than standing down silently."""
     from dl.tui import ytflow
 
-    instance.acquire(tmp_path, pid=os.getpid() + 1)
+    instance.acquire(tmp_path, pid=other_pid)
     monkeypatch.setattr(ytflow, "_run_youtube", lambda *a: pytest.fail("opened anyway"))
     lines, cancelled = ytflow.run_youtube(cfg, ["https://youtu.be/abc"], state=tmp_path)
     assert cancelled is True
