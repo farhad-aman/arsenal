@@ -129,7 +129,7 @@ def test_a_url_already_downloading_is_not_queued_again(cfg):
 def test_a_youtube_link_goes_to_yt_dlp_not_aria2(cfg, monkeypatch, tmp_path):
     """aria2 would fetch the watch page itself and save it as HTML."""
     spawned = []
-    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
+    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None, cap=0: spawned.append(job))
     monkeypatch.setattr("dl.ytrun.probe", lambda job, timeout=None: ("A Clip", str(tmp_path / "A Clip.mp4"), 99))
     monkeypatch.setattr(watch.shutil, "which", lambda name: "/usr/local/bin/yt-dlp")
 
@@ -142,7 +142,7 @@ def test_a_youtube_link_goes_to_yt_dlp_not_aria2(cfg, monkeypatch, tmp_path):
 
 def test_a_caught_youtube_link_on_a_listed_domain_is_proxied(cfg, monkeypatch, tmp_path):
     spawned = []
-    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
+    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None, cap=0: spawned.append(job))
     monkeypatch.setattr("dl.ytrun.probe", lambda job, timeout=None: ("A Clip", str(tmp_path / "A Clip.mp4"), 99))
     monkeypatch.setattr(watch.shutil, "which", lambda name: "/usr/local/bin/yt-dlp")
 
@@ -153,7 +153,7 @@ def test_a_caught_youtube_link_on_a_listed_domain_is_proxied(cfg, monkeypatch, t
 
 def test_a_youtube_video_already_on_disk_is_not_fetched_again(cfg, monkeypatch, tmp_path):
     spawned = []
-    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
+    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None, cap=0: spawned.append(job))
     landed = tmp_path / "A Clip.mp4"
     landed.write_bytes(b"already here")
     monkeypatch.setattr("dl.ytrun.probe", lambda job, timeout=None: ("A Clip", str(landed), 99))
@@ -177,7 +177,7 @@ def test_a_youtube_link_it_cannot_check_is_left_alone(cfg, monkeypatch, capsys):
     from dl import ytrun
 
     spawned = []
-    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None: spawned.append(job))
+    monkeypatch.setattr("dl.tui.ytflow.spawn", lambda job, state=None, cap=0: spawned.append(job))
     monkeypatch.setattr(watch.shutil, "which", lambda name: "/usr/local/bin/yt-dlp")
 
     def die(job, timeout=None):

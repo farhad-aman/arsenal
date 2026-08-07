@@ -202,10 +202,14 @@ def main(argv: list[str]) -> int:
 
 
 def hand_over(state: Path, job_id: str, cap: int) -> None:
-    """Give the slot back and start whatever was waiting for it."""
+    """Give the slot back and start whatever was waiting for it.
+
+    Every free slot, not just this one: other supervisors may have died without
+    releasing theirs, and this is the moment someone is looking.
+    """
     ytqueue.release(state, job_id)
     try:
-        ytqueue.start_next(state.parent, cap)
+        ytqueue.fill(state.parent, cap)
     except OSError:
         pass
 

@@ -1,3 +1,4 @@
+import argparse
 import shutil
 import sys
 from pathlib import Path
@@ -28,10 +29,53 @@ dl — download manager
 
 SUBCOMMANDS = {"ls", "history", "pause", "resume", "rm", "watch", "kill", "help"}
 
+# Flags each subcommand understands. Anything else is a mistake worth saying so
+# about rather than dropping: `dl ls --failed` used to filter nothing, quietly.
+SUBCOMMAND_FLAGS = {"kill": {"--strays"}, "history": {"--failed", "--json"}}
+
+
+class ArgError(Exception):
+    """A bad command line. Carries the message dl should print."""
+
+
+class _Parser(argparse.ArgumentParser):
+    """argparse that reports rather than exits.
+
+    The stock parser calls sys.exit(2) from inside error(), which would bypass
+    main()'s return codes and print a usage block dl does not own.
+    """
+
+    def error(self, message: str):
+        raise ArgError(message)
+
+    def exit(self, status: int = 0, message: str | None = None):
+        raise ArgError(message or "")
+
+
+def _add_parser() -> _Parser:
+    parser = _Parser(prog="dl", add_help=False)
+    parser.add_argument("urls", nargs="*")
+    parser.add_argument("-d", "--dir", dest="directory")
+    parser.add_argument("-f", "--file", dest="url_file")
+    parser.add_argument("-p", "--proxy", action="store_true")
+    parser.add_argument("-H", dest="headers", action="append", default=[])
+    parser.add_argument("--no-preview", dest="preview", action="store_false", default=True)
+    return parser
+
+
+def _check_flags(command: str, rest: list[str]) -> None:
+    allowed = SUBCOMMAND_FLAGS.get(command, set())
+    for arg in rest:
+        if arg.startswith("-") and arg not in allowed:
+            raise ArgError(f"unrecognized argument for {command}: {arg}")
+
 
 def main(argv: list[str] | None = None) -> int:
     try:
         return _run(list(argv if argv is not None else sys.argv[1:]))
+    except ArgError as exc:
+        print(f"dl: {exc}\n\n{USAGE}", file=sys.stderr)
+        return 1
     except (Aria2Error, Aria2Unreachable) as exc:
         print(f"dl: {exc}", file=sys.stderr)
         return 1
@@ -57,49 +101,31 @@ def _run_youtube(cfg, urls: list[str], proxy: bool, interactive: bool) -> int:
 
 
 def _run(args: list[str]) -> int:
-
     if args and args[0] in ("-h", "--help", "help"):
         print(USAGE)
         return 0
 
-    preview = "--no-preview" not in args
-    args = [a for a in args if a != "--no-preview"]
+    command = args[0] if args and args[0] in SUBCOMMANDS else None
+    preview, proxy, headers = True, False, []
+    explicit_dir: Path | None = None
+    urls: list[str] = []
 
-    proxy = "-p" in args or "--proxy" in args
-    args = [a for a in args if a not in ("-p", "--proxy")]
-
-    headers: list[str] = []
-    while "-H" in args:
-        at = args.index("-H")
-        if at + 1 >= len(args):
-            print("dl: -H needs a header, e.g. -H \"Referer: https://site/\"", file=sys.stderr)
-            return 1
-        headers.append(args[at + 1])
-        del args[at : at + 2]
+    if command is not None:
+        _check_flags(command, args[1:])
+    else:
+        opts = _add_parser().parse_args(args)
+        preview, proxy, headers = opts.preview, opts.proxy, opts.headers
+        explicit_dir = Path(opts.directory).expanduser() if opts.directory else None
+        if opts.url_file:
+            try:
+                urls = cli.read_url_file(opts.url_file)
+            except OSError as exc:
+                raise ArgError(str(exc)) from None
+        urls += list(opts.urls)
 
     if not CONFIG_FILE.exists():
         config.write_default(CONFIG_FILE)
     cfg = config.load(CONFIG_FILE)
-
-    explicit_dir: Path | None = None
-    if args and args[0] == "-d":
-        if len(args) < 2:
-            print("dl: -d needs a directory", file=sys.stderr)
-            return 1
-        explicit_dir = Path(args[1]).expanduser()
-        args = args[2:]
-
-    urls: list[str] = []
-    if args and args[0] == "-f":
-        if len(args) < 2:
-            print("dl: -f needs a file or -", file=sys.stderr)
-            return 1
-        urls = cli.read_url_file(args[1])
-        args = args[2:]
-
-    command = args[0] if args and args[0] in SUBCOMMANDS else None
-    if command is None:
-        urls += [a for a in args if not a.startswith("-")]
 
     if command == "kill" and "--strays" in args:
         # Starting a daemon in order to list the ones that should not exist

@@ -27,6 +27,7 @@ from .. import (
 )
 from ..theme import glyph
 from ..config import CONFIG_FILE, STATE_DIR, Config
+from ..destinations import ensure_writable
 from ..format import cells, human_bytes
 from ..rpc import Aria2Error, Aria2Unreachable
 from .completed import CompletedTable, record_path
@@ -177,6 +178,7 @@ HINT_DONE = "  ".join(f"{k} {v}" for k, v in DONE_KEYS)
 
 SETTLED = ("removed", "error", "complete")
 SETTLE_TIMEOUT = 5.0
+QUEUE_SWEEP = 5.0
 
 
 class DlApp(App):
@@ -208,6 +210,9 @@ class DlApp(App):
     ]
 
     splash_when_empty = True
+    # The preview is scoped to the downloads one command queued, so it has no
+    # business starting the rest of the queue behind the user's back.
+    fills_queue = True
 
     def __init__(self, cfg: Config, client):
         super().__init__()
@@ -282,7 +287,19 @@ class DlApp(App):
         self.search_note.display = False
         self.set_interval(0.5, self.refresh_data)
         self.set_interval(0.1, self.table.refresh_view)
+        if self.fills_queue:
+            # Now, for whatever a reboot stranded, and then slowly: a supervisor
+            # killed mid-session frees its slot without handing it on.
+            self.fill_youtube_queue()
+            self.set_interval(QUEUE_SWEEP, self.fill_youtube_queue)
         self.call_after_refresh(self.refresh_data)
+
+    def fill_youtube_queue(self) -> None:
+        """Start queued YouTube jobs that no departing supervisor started."""
+        try:
+            ytqueue.fill(STATE_DIR, self.cfg.general.max_concurrent)
+        except OSError:
+            pass
 
     def check_action(self, action: str, parameters: tuple) -> bool:
         """Priority bindings are resolved app-first, so a dashboard key would beat
@@ -848,7 +865,11 @@ class DlApp(App):
         if decision == duplicates.SKIP:
             self.notify(f"skipped {resolution.path.name or url}")
             return
-        resolution.path.mkdir(parents=True, exist_ok=True)
+        if not ensure_writable(resolution.path):
+            # An unmounted drive or a read-only volume, which the picker and
+            # the command line both check for and the dashboard did not.
+            self.notify(f"cannot write to {resolution.path}", severity="error")
+            return
         options = cli.add_options(
             self.cfg,
             resolution,

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import cli, duplicates, history, instance, routing, theme, youtube
 from .config import STATE_DIR, Config
+from .destinations import ensure_writable
 from .rpc import Aria2Error, Aria2Unreachable
 
 SCHEMES = ("http://", "https://", "ftp://", "magnet:")
@@ -66,10 +67,18 @@ def poll_once(text: str, seen: deque, cfg: Config, client) -> bool:
         )
         return False
 
-    resolution.path.mkdir(parents=True, exist_ok=True)
+    if not ensure_writable(resolution.path):
+        print(f"  {_g('⚠', cfg)}  skipped  {name or value}  — cannot write to {resolution.path}")
+        return False
     proxied = routing.through_proxy(value, cfg)
     sent = routing.header_lines(routing.headers_for(value, cfg))
-    client.add_uri([value], cli.add_options(cfg, resolution, proxied, None, sent))
+    try:
+        client.add_uri([value], cli.add_options(cfg, resolution, proxied, None, sent))
+    except (Aria2Error, Aria2Unreachable) as exc:
+        # The watcher runs until stopped, so one refusal steps aside rather
+        # than ending the session and every link copied after it.
+        print(f"  {_g('⚠', cfg)}  skipped  {name or value}  — {exc}")
+        return False
     via = f"  {_g('🌐', cfg)} via proxy" if proxied else ""
     icon = theme.category_icon(resolution.category, cfg)
     print(f"  {icon} caught  {name or value}  →  {resolution.path}{via}")
@@ -115,10 +124,13 @@ def _catch_youtube(url: str, cfg: Config) -> bool:
 
     job["title"] = title
     job["total"] = total
-    ytflow.spawn(job)
+    # Under the cap, like anything else queued in bulk: copying ten links used
+    # to start ten supervisors at once, each pulling a video at full speed.
+    started = ytflow.spawn(job, cap=cfg.general.max_concurrent)
     via = f"  {_g('🌐', cfg)} via proxy" if job["proxy"] else ""
     icon = theme.category_icon(category, cfg)
-    print(f"  {icon} caught  {title or url}  →  {category.dir}{via}")
+    verb = "caught" if started else "queued"
+    print(f"  {icon} {verb}  {title or url}  →  {category.dir}{via}")
     return True
 
 
@@ -148,18 +160,36 @@ def run(
         instance.release(state)
 
 
+QUEUE_SWEEP = 5.0
+
+
 def _watch(cfg, client, interval, reader, iterations) -> int:
     source = reader or read_clipboard
     seen: deque = deque(maxlen=20)
     print("  watching clipboard — Ctrl-C to stop")
     print("  YouTube links are taken at best quality; run `dl <url>` to choose")
     count = 0
+    swept = 0.0
     try:
         while iterations is None or count < iterations:
             poll_once(source(), seen, cfg, client)
+            # Nothing else is watching the YouTube queue while this runs, and a
+            # link held back by the cap needs someone to notice the slot free.
+            if time.monotonic() - swept > QUEUE_SWEEP:
+                swept = time.monotonic()
+                _fill_queue(cfg)
             count += 1
             if interval:
                 time.sleep(interval)
     except KeyboardInterrupt:
         print("\n  stopped")
     return 0
+
+
+def _fill_queue(cfg: Config) -> None:
+    from . import ytqueue
+
+    try:
+        ytqueue.fill(STATE_DIR, cfg.general.max_concurrent)
+    except OSError:
+        pass

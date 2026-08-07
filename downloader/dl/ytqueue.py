@@ -175,6 +175,30 @@ def waiting(directory: Path) -> list[dict]:
     )
 
 
+def free_slots(directory: Path, cap: int) -> int:
+    return max(max(cap, 1) - len(claims(directory)), 0)
+
+
+def fill(state: Path, cap: int) -> list[dict]:
+    """Start whatever is queued for as long as there are slots.
+
+    start_next only ever runs from a supervisor on its way out, and a kill -9,
+    a crash or a reboot never reaches that. The claims go stale, the slots come
+    free, and the jobs behind them stay queued with nobody left to start them.
+    Whoever is watching the queue calls this rather than trusting a departing
+    supervisor to have done it.
+    """
+    started: list[dict] = []
+    while True:
+        try:
+            job = start_next(state, cap)
+        except OSError:
+            return started
+        if job is None:
+            return started
+        started.append(job)
+
+
 def start_next(state: Path, cap: int) -> dict | None:
     """Hand the slot on. Called by a supervisor as it leaves.
 

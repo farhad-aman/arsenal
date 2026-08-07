@@ -69,6 +69,7 @@ class PreviewApp(DlApp):
     """
 
     splash_when_empty = False
+    fills_queue = False
 
     def __init__(self, cfg, client, gids=(), pending=(), queue=None, pick_paths=True):
         super().__init__(cfg, client)
