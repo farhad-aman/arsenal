@@ -92,7 +92,9 @@ Options:
   -t [NAME]   sing-box TUN mode — per-app routing
   -e, --edit  interactively edit the TUN app list (fzf add/remove)
   -c, --check test every sing-box config, list working ones + latency
-  -a URL [NAME]  import a subscription (all nodes, auto-picks fastest)
+  -a URL [NAME]  import a subscription (all nodes, auto-picks fastest); remembers URL
+  -a          list saved subscriptions
+  -u [NAME]   refresh saved sub(s) from their URL (all if no NAME)
   -of/-fs/-ofs  any combination
 
 Examples:
@@ -176,6 +178,18 @@ node you pick turns out dead, just re-run without `P` for auto-select.
 `xhttp`, `kcp`, and `quic` nodes are skipped — sing-box has no such transports (they're
 Xray-only). Reality nodes missing a public key are skipped too. The import prints the
 counts.
+
+**Saved & refreshable.** Every `vpn -a` remembers the URL in `~/singbox/subs.conf`
+(`name<TAB>url`), so you never paste the link twice:
+```bash
+vpn -a               # list saved subscriptions
+vpn -u gorbe         # re-fetch gorbe from its saved URL, rebuild the config
+vpn -u               # refresh ALL saved subs
+```
+Subscription hosts are often filtered — the importer fetches direct first, then falls
+back through the local sing-box proxy on `:2080`, so a proxy must be up when you import
+or refresh a blocked sub. (Override the fallback with `SUB_PROXY=socks5://host:port`.)
+`subs.conf` lives outside the git repo — the token URLs are never committed.
 
 **Requires `.env`** — copy `.env.example` and fill your credentials.
 

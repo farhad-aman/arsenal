@@ -17,7 +17,10 @@
 #   vpn -e, --edit                 interactively edit the TUN app list (fzf)
 #   vpn -c, --check                test every config, list working ones + latency
 #   vpn -a URL [NAME]              import a subscription -> one config, all nodes
-#                                  behind a urltest group (auto-picks fastest)
+#                                  behind a urltest group (auto-picks fastest);
+#                                  remembers the URL in subs.conf
+#   vpn -a                         list saved subscriptions
+#   vpn -u [NAME]                  refresh saved sub(s) from their URL (all if no NAME)
 #   vpn -ofs                       all three
 #
 # NOTE — proxy flag:
@@ -134,28 +137,73 @@ vpn_edit() {
     ok "Saved. Run 'vpn -t' to apply."
 }
 
-# ── Import a subscription ─────────────────────────────────────
-# Fetches a v2ray/xray subscription URL (or local file of share links) and
-# writes ONE sing-box config holding every node behind a urltest group, so
-# sing-box auto-picks the fastest and fails over on its own.
-vpn_sub() {
-    local url="$2" name="$3"
-    [[ -n "$url" ]] || { echo "Usage: vpn -a <sub-url|file> [name]"; return 1; }
-    if [[ -z "$name" ]]; then                      # gorbe.rnziscoding.baby -> gorbe
-        name="$(echo "$url" | sed -E 's#^[a-z]+://##; s#[:/].*##; s#\..*##')"
-        [[ -n "$name" ]] || name="sub"
-    fi
-    local out="${SINGBOX_DIR}/${name}.json"
+# ── Subscriptions ─────────────────────────────────────────────
+# Imported sub URLs are remembered in subs.conf ("name<TAB>url") so they can be
+# refreshed later without re-pasting the link. Each import writes ONE sing-box
+# config holding every node behind a urltest group (auto-picks fastest).
+SUBS_FILE="${SINGBOX_DIR}/subs.conf"
 
-    log "Importing subscription -> $out"
+_sub_name_from_url() {   # gorbe.rnziscoding.baby -> gorbe
+    local n; n="$(echo "$1" | sed -E 's#^[a-z]+://##; s#[:/].*##; s#\..*##')"
+    echo "${n:-sub}"
+}
+
+_sub_save() {   # $1=name  $2=url  — upsert into subs.conf
+    touch "$SUBS_FILE"
+    local tmp; tmp="$(mktemp)"
+    grep -vE "^$1"$'\t' "$SUBS_FILE" > "$tmp" 2>/dev/null || true
+    printf '%s\t%s\n' "$1" "$2" >> "$tmp"
+    sort -o "$tmp" "$tmp" && mv "$tmp" "$SUBS_FILE"
+}
+
+_sub_url_for() { grep -E "^$1"$'\t' "$SUBS_FILE" 2>/dev/null | head -1 | cut -f2-; }
+
+_sub_import() {   # $1=name  $2=url  — fetch + write config + validate
+    local name="$1" url="$2"
+    local out="${SINGBOX_DIR}/${name}.json"
+    log "Importing '$name' <- $url"
     python3 "$(dirname "$0")/sub2singbox.py" "$url" "$out" || return 1
     if sing-box check -c "$out" >/dev/null 2>&1; then
-        ok "$name.json valid — use it with: vpn -s $name   (or vpn -t $name)"
+        ok "$name.json valid — vpn -s $name  (or vpn -t $name)"
     else
-        echo "Config written but sing-box check failed:"
-        sing-box check -c "$out"
+        echo "Config written but sing-box check failed:"; sing-box check -c "$out"; return 1
+    fi
+}
+
+vpn_sub() {   # vpn -a <url> [name]   OR   vpn -a  (list saved subs)
+    local url="$2" name="$3"
+    if [[ -z "$url" ]]; then
+        if [[ -s "$SUBS_FILE" ]]; then
+            echo "Saved subscriptions ($SUBS_FILE):"
+            while IFS=$'\t' read -r n u; do printf "  %-14s %s\n" "$n" "$u"; done < "$SUBS_FILE"
+            echo ""; echo "Refresh:  vpn -u [name]   Add:  vpn -a <url> [name]"
+        else
+            echo "No saved subscriptions. Add one: vpn -a <sub-url> [name]"
+        fi
+        return 0
+    fi
+    [[ -n "$name" ]] || name="$(_sub_name_from_url "$url")"
+    _sub_import "$name" "$url" || return 1
+    _sub_save "$name" "$url"
+    log "Saved to subs.conf — refresh anytime with: vpn -u $name"
+}
+
+vpn_sub_update() {   # vpn -u [name]   — refresh one, or all saved subs
+    local only="$2"
+    [[ -s "$SUBS_FILE" ]] || { echo "No saved subscriptions. Add: vpn -a <url> [name]"; return 1; }
+    local n u any=0 fail=0
+    while IFS=$'\t' read -r n u; do
+        [[ -z "$n" ]] && continue
+        [[ -n "$only" && "$n" != "$only" ]] && continue
+        any=1
+        _sub_import "$n" "$u" || fail=1
+    done < "$SUBS_FILE"
+    if [[ $any -eq 0 ]]; then
+        echo "No saved sub named '$only'. Known:"
+        cut -f1 "$SUBS_FILE" | sed 's/^/  /'
         return 1
     fi
+    [[ $fail -eq 0 ]] && ok "Refresh done." || { echo "Some refreshes failed."; return 1; }
 }
 
 # ── Test all sing-box configs ─────────────────────────────────
@@ -249,6 +297,7 @@ case "${1:-}" in
     -e|--edit)  vpn_edit;  return 0 2>/dev/null || exit 0 ;;
     -c|--check) vpn_test;  return 0 2>/dev/null || exit 0 ;;
     -a|--add)   vpn_sub "$@"; return 0 2>/dev/null || exit 0 ;;
+    -u|--update) vpn_sub_update "$@"; return 0 2>/dev/null || exit 0 ;;
 esac
 
 set -e

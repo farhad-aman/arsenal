@@ -12,14 +12,35 @@ UA = "v2rayNG/1.8.5"
 SKIP_TRANSPORTS = {"xhttp", "kcp", "quic", "splithttp"}
 
 
-def fetch(src):
-    if os.path.exists(src):
-        return open(src).read()
+def _get(src, proxy, timeout):
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    handlers = [urllib.request.HTTPSHandler(context=ctx)]
+    if proxy:
+        handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+    else:
+        handlers.append(urllib.request.ProxyHandler({}))   # ignore env proxies
+    opener = urllib.request.build_opener(*handlers)
     req = urllib.request.Request(src, headers={"User-Agent": UA})
-    return urllib.request.urlopen(req, timeout=30, context=ctx).read().decode()
+    return opener.open(req, timeout=timeout).read().decode()
+
+
+def fetch(src):
+    if os.path.exists(src):
+        return open(src).read()
+    # Sub hosts are often filtered — try direct, then fall back through the
+    # local sing-box proxy (mixed inbound on :2080 speaks HTTP CONNECT).
+    proxy = os.environ.get("SUB_PROXY", "http://127.0.0.1:2080")
+    attempts = [(None, 12), (proxy, 25)]
+    last = None
+    for p, t in attempts:
+        try:
+            return _get(src, p, t)
+        except Exception as e:
+            last = e
+            sys.stderr.write(f"fetch via {p or 'direct'} failed: {e}\n")
+    raise SystemExit(f"could not fetch subscription (tried direct + {proxy}): {last}")
 
 
 def maybe_b64(text):
