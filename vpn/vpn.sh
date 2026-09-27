@@ -1,12 +1,14 @@
 #!/bin/bash
-# vpn.sh — multi-VPN orchestrator: OpenVPN + FortiVPN + sing-box
+# vpn.sh — multi-VPN orchestrator: OpenVPN + FortiVPN + Cisco + sing-box
 #
 # Usage:
-#   vpn [-o] [-f] [-s] [-s NAME]   connect all or specific combo
+#   vpn [-o] [-f] [-c] [-s] [-s NAME]   connect all or specific combo
 #   vpn -k, --kill                 kill all VPN processes
 #   vpn -p, --proxy                toggle shell proxy (127.0.0.1:2080)
 #   vpn -o                         OpenVPN only
 #   vpn -f                         FortiVPN only
+#   vpn -c                         Cisco Secure Client only (via ~/.cisco/cisco.sh)
+#   vpn -tc [NAME]                 sing-box TUN + Cisco
 #   vpn -s                         sing-box proxy :2080 (fzf config picker)
 #   vpn -s NAME                    sing-box with NAME.json
 #   vpn -t [NAME]                  sing-box TUN mode — per-app routing
@@ -15,7 +17,7 @@
 #   vpn -sP [NAME] / -tP [NAME]    add P to pick ONE node (fzf) from a multi-node
 #                                  subscription config, instead of urltest auto
 #   vpn -e, --edit                 interactively edit the TUN app list (fzf)
-#   vpn -c, --check                test every config, list working ones + latency
+#   vpn --check                    test every config, list working ones + latency
 #   vpn -a URL [NAME]              import a subscription -> one config, all nodes
 #                                  behind a urltest group (auto-picks fastest);
 #                                  remembers the URL in subs.conf
@@ -47,6 +49,20 @@ RESET='\033[0m'
 log()  { echo -e "${CYAN}[vpn]${RESET} $*"; }
 ok()   { echo -e "${GREEN}[ok]${RESET}  $*"; }
 
+USER_HOME="$(eval echo "~${SUDO_USER:-$USER}")"
+CISCO_SH="${CISCO_SH:-$USER_HOME/.cisco/cisco.sh}"
+
+# Cisco's vpn CLI talks to the per-user agent — run it as the real user, not root.
+# su, not `sudo -u`: sudo's pty mode hangs forever when its output is piped.
+cisco() {
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        su "$SUDO_USER" -c "bash '$CISCO_SH' $*"
+    else
+        bash "$CISCO_SH" "$@"
+    fi
+}
+cisco_connected() { cisco status 2>/dev/null | grep -q 'state: Connected'; }
+
 # ── Kill ──────────────────────────────────────────────────────
 vpn_kill() {
     log "Killing all VPN processes..."
@@ -73,6 +89,8 @@ vpn_kill() {
     sudo killall -9 openvpn   2>/dev/null || true
 
     pkill -x sing-box 2>/dev/null || true
+
+    [[ -f "$CISCO_SH" ]] && cisco down >/dev/null 2>&1 || true
 
     ok "VPN state cleared"
 }
@@ -295,7 +313,7 @@ case "${1:-}" in
     -k|--kill)  vpn_kill;  return 0 2>/dev/null || exit 0 ;;
     -p|--proxy) vpn_proxy; return 0 2>/dev/null || exit 0 ;;
     -e|--edit)  vpn_edit;  return 0 2>/dev/null || exit 0 ;;
-    -c|--check) vpn_test;  return 0 2>/dev/null || exit 0 ;;
+    --check)    vpn_test;  return 0 2>/dev/null || exit 0 ;;
     -a|--add)   vpn_sub "$@"; return 0 2>/dev/null || exit 0 ;;
     -u|--update) vpn_sub_update "$@"; return 0 2>/dev/null || exit 0 ;;
 esac
@@ -308,7 +326,7 @@ FORTI_LOG=/tmp/forti.log
 SINGBOX_LOG=/tmp/singbox.log
 
 # ── Parse flags ───────────────────────────────────────────────
-RUN_O=0; RUN_F=0; RUN_S=0; RUN_T=0; PICK=0
+RUN_O=0; RUN_F=0; RUN_C=0; RUN_S=0; RUN_T=0; PICK=0
 SB_CONFIG_ARG=""
 
 if [[ $# -eq 0 ]]; then
@@ -318,6 +336,7 @@ else
     LETTERS="${ARG//[0-9]/}"
     [[ "$LETTERS" == *o* ]] && RUN_O=1
     [[ "$LETTERS" == *f* ]] && RUN_F=1
+    [[ "$LETTERS" == *c* ]] && RUN_C=1
     [[ "$LETTERS" == *s* ]] && RUN_S=1
     [[ "$LETTERS" == *t* ]] && RUN_T=1
     [[ "$LETTERS" == *P* ]] && PICK=1   # pick one node instead of urltest auto
@@ -330,10 +349,12 @@ else
         shift
     fi
 
-    if [[ $RUN_O -eq 0 && $RUN_F -eq 0 && $RUN_S -eq 0 ]]; then
-        echo "Usage: vpn [-o] [-f] [-s] [-t] (combine: -of, -fs, -st, -ofs)"
+    if [[ $RUN_O -eq 0 && $RUN_F -eq 0 && $RUN_C -eq 0 && $RUN_S -eq 0 ]]; then
+        echo "Usage: vpn [-o] [-f] [-c] [-s] [-t] (combine: -of, -fs, -st, -tc, -ofs)"
         echo "  -o          OpenVPN only"
         echo "  -f          FortiVPN only"
+        echo "  -c          Cisco Secure Client only"
+        echo "  -tc [NAME]  sing-box TUN + Cisco"
         echo "  -s          sing-box proxy on :2080 (interactive config picker)"
         echo "  -s NAME     sing-box with NAME.json"
         echo "  -t          sing-box TUN mode: per-app routing via ~/singbox/tun_apps.txt"
@@ -392,7 +413,7 @@ json.dump(c, open(sys.argv[3], "w"), indent=2)
     fi
 fi
 
-TOTAL=$(( RUN_O + RUN_F + RUN_S ))
+TOTAL=$(( RUN_O + RUN_F + RUN_S + RUN_C ))
 STEP=0
 OVPN_UTUN=""   # detected after OpenVPN connects
 
@@ -401,6 +422,7 @@ CLEANED=0
 cleanup() {
     [[ $CLEANED -eq 1 ]] && return
     CLEANED=1
+    set +e   # a dead tty makes echo fail; teardown must still finish
     echo ""
     log "Disconnecting..."
 
@@ -408,8 +430,14 @@ cleanup() {
     [[ -n $TAIL_FORTI_PID ]] && kill $TAIL_FORTI_PID 2>/dev/null
     [[ -n $TAIL_SB_PID ]]    && kill $TAIL_SB_PID    2>/dev/null
 
-    [[ -n $SINGBOX_PID ]] && kill $SINGBOX_PID 2>/dev/null
-    pkill -x sing-box 2>/dev/null || true
+    if [[ $RUN_C -eq 1 ]]; then
+        cisco down 2>/dev/null | sed 's/^/  [cisco] /' || true
+    fi
+
+    if [[ $RUN_S -eq 1 ]]; then
+        [[ -n $SINGBOX_PID ]] && kill $SINGBOX_PID 2>/dev/null
+        pkill -x sing-box 2>/dev/null || true
+    fi
 
     if [[ -n $FORTI_PID ]]; then
         sudo kill -TERM $FORTI_PID 2>/dev/null
@@ -436,6 +464,8 @@ cleanup() {
     log "Done."
 }
 trap cleanup INT TERM EXIT
+# Tab/terminal closed: the tty is gone, so tear down silently
+trap 'exec >/dev/null 2>&1; cleanup; exit 129' HUP
 
 # ── 1. OpenVPN (proxy-only: --route-nopull) ───────────────────
 if [[ $RUN_O -eq 1 ]]; then
@@ -681,6 +711,19 @@ if [[ $RUN_S -eq 1 ]]; then
     fi
 fi
 
+# ── 4. Cisco Secure Client ────────────────────────────────────
+if [[ $RUN_C -eq 1 ]]; then
+    STEP=$(( STEP + 1 ))
+    log "[$STEP/$TOTAL] Cisco starting..."
+    [[ -f "$CISCO_SH" ]] || { echo "Cisco script not found: $CISCO_SH"; exit 1; }
+    cisco up | sed -u 's/^/  [cisco] /' || true
+    if ! cisco_connected; then
+        echo ""; log "Cisco failed to connect."; exit 1
+    fi
+    echo ""
+    ok "[$STEP/$TOTAL] Cisco up  ($(cisco status | awk '/Client Address \(IPv4\)/{print $NF}'))"
+fi
+
 # ── Running ───────────────────────────────────────────────────
 echo ""
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -696,7 +739,28 @@ if [[ $RUN_S -eq 1 && -n $SINGBOX_PID ]]; then
     TAIL_SB_PID=$!
 fi
 
-if [[ -n $FORTI_PID ]]; then
+if [[ $RUN_C -eq 1 ]]; then
+    # Cisco has no child process to wait on — poll it (and sing-box, if running).
+    # Reading the tty instead of sleeping makes Ctrl+D end the session too.
+    while [[ $CLEANED -eq 0 ]]; do
+        if [[ -t 0 ]]; then
+            rc=0; read -r -t 5 _ || rc=$?
+            if [[ $rc -eq 1 ]]; then
+                log "Ctrl+D"; break
+            fi
+        else
+            sleep 5
+        fi
+        [[ $CLEANED -eq 1 ]] && break
+        if [[ -n $SINGBOX_PID ]] && ! kill -0 "$SINGBOX_PID" 2>/dev/null; then
+            log "sing-box exited."; break
+        fi
+        if ! cisco_connected; then
+            [[ $CLEANED -eq 0 ]] && log "Cisco disconnected."
+            break
+        fi
+    done
+elif [[ -n $FORTI_PID ]]; then
     wait $FORTI_PID
 elif [[ -n $SINGBOX_PID ]]; then
     wait $SINGBOX_PID
