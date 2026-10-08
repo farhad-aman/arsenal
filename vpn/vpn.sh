@@ -150,6 +150,7 @@ vpn_edit() {
 SUBS_FILE="${SINGBOX_DIR}/subs.conf"
 
 _sub_name_from_url() {   # gorbe.rnziscoding.baby -> gorbe
+    [[ "$1" =~ ^https?:// ]] || { echo link; return; }
     local n; n="$(echo "$1" | sed -E 's#^[a-z]+://##; s#[:/].*##; s#\..*##')"
     echo "${n:-sub}"
 }

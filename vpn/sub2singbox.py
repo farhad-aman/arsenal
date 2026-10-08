@@ -2,7 +2,7 @@
 """Convert a v2ray/xray subscription (or a file of share links) into one
 sing-box config with a urltest group that auto-picks the fastest node.
 
-Usage: sub2singbox.py <url-or-file> <output.json> [--port N]
+Usage: sub2singbox.py <url-or-file-or-link> <output.json> [--port N]
 
 Unsupported-by-sing-box transports (xhttp, kcp, quic) are skipped and counted.
 """
@@ -29,6 +29,8 @@ def _get(src, proxy, timeout):
 def fetch(src):
     if os.path.exists(src):
         return open(src).read()
+    if re.match(r"(vless|vmess|trojan)://", src):
+        return src
     # Sub hosts are often filtered — try direct, then fall back through the
     # local sing-box proxy (mixed inbound on :2080 speaks HTTP CONNECT).
     proxy = os.environ.get("SUB_PROXY", "http://127.0.0.1:2080")
@@ -141,12 +143,13 @@ def parse_vmess(link):
         c = json.loads(base64.b64decode(raw + "=" * (-len(raw) % 4)).decode())
     except Exception:
         return None
-    ob = {"type": "vmess", "server": c["add"], "server_port": int(c["port"]),
+    ob = {"type": "vmess", "tag": c.get("ps", ""),
+          "server": c["add"], "server_port": int(c["port"]),
           "uuid": c["id"], "alter_id": int(c.get("aid", 0) or 0),
           "security": c.get("scy") or "auto"}
     q = {"type": c.get("net", "tcp"), "host": c.get("host", ""),
          "path": c.get("path", "/"), "headerType": c.get("type", ""),
-         "security": "tls" if c.get("tls") else "none",
+         "security": "tls" if c.get("tls") == "tls" else "none",
          "sni": c.get("sni", ""), "serviceName": c.get("path", "")}
     t = tls_block({k: v for k, v in q.items() if v}, c["add"])
     if t == "SKIP":
@@ -202,7 +205,7 @@ def main():
         if not ob.get("server") or not ob.get("server_port"):
             failed += 1
             continue
-        ob["tag"] = slug(frag or ob["server"], used)
+        ob["tag"] = slug(frag or ob.get("tag") or ob["server"], used)
         nodes.append(ob)
 
     if not nodes:
