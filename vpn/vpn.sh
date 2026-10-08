@@ -51,14 +51,26 @@ CISCO_SH="${CISCO_SH:-$USER_HOME/.cisco/cisco.sh}"
 
 # Cisco's vpn CLI talks to the per-user agent — run it as the real user, not root.
 # su, not `sudo -u`: sudo's pty mode hangs forever when its output is piped.
-cisco() {
+vpn_cisco() {
     if [[ -n "${SUDO_USER:-}" ]]; then
         su "$SUDO_USER" -c "bash '$CISCO_SH' $*"
     else
         bash "$CISCO_SH" "$@"
     fi
 }
-cisco_connected() { cisco status 2>/dev/null | grep -q 'state: Connected'; }
+cisco_connected() { vpn_cisco status 2>/dev/null | grep -q 'state: Connected'; }
+
+# /etc/resolver/snappcloud.io sends *.snappcloud.io to DNS that only answers once the
+# VPN is up, so the gateway name needs its own rule. Rebuilt on every start because
+# the gateway IP flips and which public resolvers are reachable changes day to day.
+refresh_gateway_dns() {
+    local host servers
+    host=$(sed -n 's/^HOST=//p' "$USER_HOME/.cisco/config")
+    [[ -n "$host" ]] || return 0
+    servers=$(scutil --dns | awk '/^resolver #1$/{f=1} f&&/nameserver\[/{print $3} f&&/^$/{exit}')
+    for s in $servers 8.8.8.8 1.1.1.1; do echo "nameserver $s"; done > "/etc/resolver/$host"
+    killall -HUP mDNSResponder 2>/dev/null || true
+}
 
 # ── Kill ──────────────────────────────────────────────────────
 vpn_kill() {
@@ -66,7 +78,7 @@ vpn_kill() {
 
     pkill -x sing-box 2>/dev/null || true
 
-    [[ -f "$CISCO_SH" ]] && cisco down >/dev/null 2>&1 || true
+    [[ -f "$CISCO_SH" ]] && vpn_cisco down >/dev/null 2>&1 || true
 
     ok "VPN state cleared"
 }
@@ -398,7 +410,7 @@ cleanup() {
     [[ -n $TAIL_SB_PID ]] && kill $TAIL_SB_PID 2>/dev/null
 
     if [[ $RUN_C -eq 1 ]]; then
-        cisco down 2>/dev/null | sed 's/^/  [cisco] /' || true
+        vpn_cisco down 2>/dev/null | sed 's/^/  [cisco] /' || true
     fi
 
     if [[ $RUN_S -eq 1 ]]; then
@@ -570,12 +582,13 @@ if [[ $RUN_C -eq 1 ]]; then
     STEP=$(( STEP + 1 ))
     log "[$STEP/$TOTAL] Cisco starting..."
     [[ -f "$CISCO_SH" ]] || { echo "Cisco script not found: $CISCO_SH"; exit 1; }
-    cisco up | sed -u 's/^/  [cisco] /' || true
+    cisco_connected || refresh_gateway_dns
+    vpn_cisco up | sed -u 's/^/  [cisco] /' || true
     if ! cisco_connected; then
         echo ""; log "Cisco failed to connect."; exit 1
     fi
     echo ""
-    ok "[$STEP/$TOTAL] Cisco up  ($(cisco status | awk '/Client Address \(IPv4\)/{print $NF}'))"
+    ok "[$STEP/$TOTAL] Cisco up  ($(vpn_cisco status | awk '/Client Address \(IPv4\)/{print $NF}'))"
 fi
 
 # ── Running ───────────────────────────────────────────────────
