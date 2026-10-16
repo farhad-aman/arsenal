@@ -164,8 +164,15 @@ def parse_vmess(link):
     return ob
 
 
+def flags_to_country_codes(text):
+    return re.sub("[\U0001F1E6-\U0001F1FF]{2}",
+                  lambda m: " " + "".join(chr(ord(c) - 0x1F1E6 + 65) for c in m.group()) + " ",
+                  text)
+
+
 def slug(name, used):
-    s = re.sub(r"[^A-Za-z0-9]+", "-", up.unquote(name)).strip("-").lower()
+    s = flags_to_country_codes(up.unquote(name))
+    s = re.sub(r"[^A-Za-z0-9]+", "-", s).strip("-").lower()
     s = re.sub(r"-+", "-", s)[:28] or "node"
     base, n = s, 2
     while s in used:

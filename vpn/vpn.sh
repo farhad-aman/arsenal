@@ -366,19 +366,33 @@ if [[ $RUN_S -eq 1 ]]; then
     # + direct, with route.final -> chosen. Skipped for single-node configs.
     if [[ $PICK -eq 1 ]]; then
         SB_PICK_TMP=/tmp/singbox_pick.json
-        NODE_TAGS=$(python3 -c '
+        NODE_ROWS=$(python3 -c '
 import json, sys
 c = json.load(open(sys.argv[1]))
+rows = []
 for o in c.get("outbounds", []):
-    if o.get("type") not in ("urltest", "selector", "direct", "block", "dns"):
-        print(o.get("tag", ""))
+    if o.get("type") in ("urltest", "selector", "direct", "block", "dns"):
+        continue
+    server = str(o.get("server", ""))
+    addr = f"[{server}]" if ":" in server else server
+    port = o.get("server_port", "")
+    sni = (o.get("tls") or {}).get("server_name", "")
+    rows.append((o.get("tag", ""), o.get("type", ""),
+                 (o.get("transport") or {}).get("type", "tcp"),
+                 f"{addr}:{port}",
+                 f"sni={sni}" if sni and sni != server else ""))
+widths = [max(len(r[i]) for r in rows) for i in range(4)]
+for r in rows:
+    shown = "  ".join(v.ljust(w) for v, w in zip(r, widths)) + "  " + r[4]
+    print(f"{r[0]}\t{shown.rstrip()}")
 ' "$SINGBOX_CONFIG")
-        NCOUNT=$(echo "$NODE_TAGS" | grep -c .)
+        NCOUNT=$(echo "$NODE_ROWS" | grep -c .)
         if [[ "$NCOUNT" -le 1 ]]; then
             log "  Only one node in this config — nothing to pick."
         else
-            PICKED_TAG=$(echo "$NODE_TAGS" | fzf --prompt="pick node ($NCOUNT) > " \
-                --height=70% --border --no-sort --header="route ALL traffic through one node")
+            PICKED_TAG=$(echo "$NODE_ROWS" | fzf --prompt="pick node ($NCOUNT) > " \
+                --delimiter=$'\t' --with-nth=2 --height=70% --border --no-sort \
+                --header="route ALL traffic through one node" | cut -f1)
             [[ -z "$PICKED_TAG" ]] && { echo "No node picked."; exit 1; }
             python3 -c '
 import json, sys
