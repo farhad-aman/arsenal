@@ -190,7 +190,7 @@ def main():
     text = maybe_b64(fetch(src))
     links = [l.strip() for l in text.splitlines() if "://" in l]
 
-    nodes, used, skipped, failed = [], set(), 0, 0
+    nodes, names, used, skipped, failed = [], {}, set(), 0, 0
     for link in links:
         frag = link.split("#", 1)[1] if "#" in link else ""
         try:
@@ -212,7 +212,9 @@ def main():
         if not ob.get("server") or not ob.get("server_port"):
             failed += 1
             continue
-        ob["tag"] = slug(frag or ob.get("tag") or ob["server"], used)
+        name = up.unquote(frag) or ob.get("tag") or ob["server"]
+        ob["tag"] = slug(name, used)
+        names[ob["tag"]] = " ".join(name.split())
         nodes.append(ob)
 
     if not nodes:
@@ -237,6 +239,8 @@ def main():
     with open(out, "w") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
+    with open(re.sub(r"\.json$", "", out) + ".names.tsv", "w") as f:
+        f.writelines(f"{tag}\t{name}\n" for tag, name in names.items())
 
     print(f"{len(nodes)} nodes -> {out}  (skipped {skipped} unsupported, {failed} malformed)")
 

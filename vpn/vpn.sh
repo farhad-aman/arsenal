@@ -367,8 +367,12 @@ if [[ $RUN_S -eq 1 ]]; then
     if [[ $PICK -eq 1 ]]; then
         SB_PICK_TMP=/tmp/singbox_pick.json
         NODE_ROWS=$(python3 -c '
-import json, sys
+import json, os, sys
 c = json.load(open(sys.argv[1]))
+names_file = sys.argv[1].removesuffix(".json") + ".names.tsv"
+names = {}
+if os.path.exists(names_file):
+    names = dict(l.rstrip("\n").split("\t", 1) for l in open(names_file) if "\t" in l)
 rows = []
 for o in c.get("outbounds", []):
     if o.get("type") in ("urltest", "selector", "direct", "block", "dns"):
@@ -377,14 +381,11 @@ for o in c.get("outbounds", []):
     addr = f"[{server}]" if ":" in server else server
     port = o.get("server_port", "")
     sni = (o.get("tls") or {}).get("server_name", "")
-    rows.append((o.get("tag", ""), o.get("type", ""),
-                 (o.get("transport") or {}).get("type", "tcp"),
-                 f"{addr}:{port}",
-                 f"sni={sni}" if sni and sni != server else ""))
-widths = [max(len(r[i]) for r in rows) for i in range(4)]
-for r in rows:
-    shown = "  ".join(v.ljust(w) for v, w in zip(r, widths)) + "  " + r[4]
-    print(f"{r[0]}\t{shown.rstrip()}")
+    target = f"{addr}:{port}" + (f" ({sni})" if sni and sni != server else "")
+    rows.append((o.get("tag", ""), target, names.get(o.get("tag", ""), "")))
+widths = [max(len(r[i]) for r in rows) for i in range(2)]
+for tag, target, name in rows:
+    print(f"{tag}\t{tag.ljust(widths[0])}  {target.ljust(widths[1])}  {name}".rstrip())
 ' "$SINGBOX_CONFIG")
         NCOUNT=$(echo "$NODE_ROWS" | grep -c .)
         if [[ "$NCOUNT" -le 1 ]]; then
