@@ -69,7 +69,47 @@ refresh_gateway_dns() {
     [[ -n "$host" ]] || return 0
     servers=$(scutil --dns | awk '/^resolver #1$/{f=1} f&&/nameserver\[/{print $3} f&&/^$/{exit}')
     for s in $servers 8.8.8.8 1.1.1.1; do echo "nameserver $s"; done > "/etc/resolver/$host"
+    flush_dns
+    pin_open_gateway "$host"
+}
+
+flush_dns() {
+    dscacheutil -flushcache 2>/dev/null || true
     killall -HUP mDNSResponder 2>/dev/null || true
+}
+
+GATEWAY_PIN_TAG="# vpn.sh gateway pin"
+
+gateway_candidates() {
+    local host=$1
+    dscacheutil -q host -a name "$host" | awk '/^ip_address/{print $2}'
+    curl -s -m 5 "https://dns.google/resolve?name=$host&type=A" \
+        | grep -oE '"data":"[0-9.]+"' | cut -d'"' -f4
+    curl -s -m 5 -H 'accept: application/dns-json' "https://1.1.1.1/dns-query?name=$host&type=A" \
+        | grep -oE '"data":"[0-9.]+"' | cut -d'"' -f4
+}
+
+# Resolvers disagree and the local one often returns the dead gateway IP, so when the
+# name does not answer, pin whichever IP any resolver offers that does — only for the
+# connect itself, since the open IP changes from day to day.
+pin_open_gateway() {
+    local host=$1 ip
+    unpin_gateway
+    nc -z -G 5 "$host" 443 2>/dev/null && return 0
+    for ip in $(gateway_candidates "$host" | awk '!seen[$0]++'); do
+        if nc -z -G 3 "$ip" 443 2>/dev/null; then
+            echo "$ip $host $GATEWAY_PIN_TAG" >> /etc/hosts
+            flush_dns
+            echo "  [cisco] DNS gives a closed gateway IP; using open $ip for this connect"
+            return 0
+        fi
+    done
+}
+
+unpin_gateway() {
+    grep -q "$GATEWAY_PIN_TAG" /etc/hosts 2>/dev/null || return 0
+    sed -i '' "/$GATEWAY_PIN_TAG/d" /etc/hosts
+    flush_dns
 }
 
 # ── Kill ──────────────────────────────────────────────────────
@@ -427,6 +467,7 @@ cleanup() {
 
     if [[ $RUN_C -eq 1 ]]; then
         vpn_cisco down 2>/dev/null | sed 's/^/  [cisco] /' || true
+        unpin_gateway
     fi
 
     if [[ $RUN_S -eq 1 ]]; then
@@ -600,6 +641,7 @@ if [[ $RUN_C -eq 1 ]]; then
     [[ -f "$CISCO_SH" ]] || { echo "Cisco script not found: $CISCO_SH"; exit 1; }
     cisco_connected || refresh_gateway_dns
     vpn_cisco up | sed -u 's/^/  [cisco] /' || true
+    unpin_gateway
     if ! cisco_connected; then
         echo ""; log "Cisco failed to connect."; exit 1
     fi
